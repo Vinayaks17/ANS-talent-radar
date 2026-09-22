@@ -7,7 +7,8 @@ import { processInboundEvents } from "@/lib/workers/inbound";
 export const maxDuration = 300;
 
 /**
- * Vercel Cron target (every 5 minutes). Vercel sends `Authorization: Bearer $CRON_SECRET`.
+ * Dispatch worker. Called every 5 minutes by pg_cron + pg_net (0003_dispatch_schedule.sql)
+ * and daily by Vercel Cron as a fallback; both send `Authorization: Bearer $CRON_SECRET`.
  * Processes due scheduled actions, then any inbound events the webhook handed off.
  */
 export async function GET(request: NextRequest) {

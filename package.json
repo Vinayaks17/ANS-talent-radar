@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "db:status": "node --env-file=.env.local scripts/migrate.mjs --status",
+    "db:cron-secrets": "node --env-file=.env.local scripts/set-cron-secrets.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:types": "supabase gen types typescript --project-id hhdtretmidmdfmkopdyj --schema public > src/lib/database.types.ts"

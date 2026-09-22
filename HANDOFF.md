@@ -29,8 +29,9 @@ with email sending stubbed:
 - **Settings** `/settings`: rate limits, send window, AI thresholds, model per
   action (Luna default, Terra for match), human-review categories, senders,
   suppression counts, PAUSE ALL.
-- **Workers**: `GET /api/cron/dispatch` (Bearer `CRON_SECRET`, every 5 min via
-  `vercel.json`) runs `processInboundEvents` then `runDispatcher`.
+- **Workers**: `GET /api/cron/dispatch` (Bearer `CRON_SECRET`) runs
+  `processInboundEvents` then `runDispatcher`. See **Schedule** below for what
+  calls it.
   Dispatcher order per action: suppression list → eligibility → send window
   (candidate tz) → sender + daily caps → compose → send → record → next step.
   Nothing after a send can throw (no double sends). `POST /api/webhooks/resend`
@@ -55,11 +56,34 @@ with email sending stubbed:
   yet, so real sends would fail. Resume from Settings once DNS is done.
 - `EMAIL_DRY_RUN=1` makes `sendEmail` log instead of calling Resend.
 
+## Schedule (where the cron lives)
+
+Vercel Hobby only allows daily crons, so the 5-minute schedule lives in Supabase:
+
+- **Every 5 min — Supabase pg_cron.** Job `talent-radar-dispatch`
+  (`*/5 * * * *`) created by `supabase/migrations/0003_dispatch_schedule.sql`.
+  It runs `public.invoke_cron_dispatch()`, which uses pg_net to
+  `GET <cron_dispatch_url>` with `Authorization: Bearer <cron_secret>`.
+  Both values are in **Supabase Vault** (names `cron_dispatch_url`,
+  `cron_secret`), never in the repo. Set or rotate them with
+  `npm run db:cron-secrets` (reads `APP_URL` + `CRON_SECRET` from
+  `.env.local`). If either secret is missing the job logs a notice and skips.
+- **Daily 03:00 UTC — Vercel Cron** (`vercel.json`), a fallback that hits the
+  same route with Vercel's own `CRON_SECRET` header.
+- `CRON_SECRET` must be identical in Vercel env vars and Vault. Rotating it
+  means updating both, then redeploying.
+- Inspect: `select * from cron.job;` / `select * from cron.job_run_details
+  order by start_time desc limit 20;` / `select * from net._http_response
+  order by created desc limit 20;`. Pause: `select cron.unschedule('talent-radar-dispatch');`
+  (re-run the migration's `cron.schedule(...)` line to restore).
+
 ## Not built yet (in order)
 
-1. **Deploy**: create the Vercel project from the GitHub repo, set env vars
-   from `.env.example` (`APP_URL` = the Vercel URL, `CRON_SECRET` random,
-   `RESEND_WEBHOOK_SECRET` from the Resend webhook), confirm the cron runs.
+1. **Deploy**: Vercel project `ans-talent-radar` is linked to the GitHub
+   repo (`main` auto-deploys). Remaining: set the Supabase/Resend env vars from
+   `.env.example` and `APP_URL` = the Vercel URL, apply migration 0003
+   (`npm run db:migrate`), run `npm run db:cron-secrets`, then confirm rows in
+   `cron.job_run_details` and 200s in `net._http_response`.
 2. **Resend domain + webhook**: add `talent.ansrpo.com` in Resend, paste the
    SPF/DKIM/DMARC + MX records into DNS, create a webhook for
    `email.received`, `email.delivered`, `email.bounced`, `email.complained`
