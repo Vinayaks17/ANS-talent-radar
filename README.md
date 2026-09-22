@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Talent Radar
 
-## Getting Started
+Autonomous candidate-nurturing for staffing firms. Upload a candidate pool,
+enrol it in a campaign, and the system emails candidates on a schedule, reads
+replies with an LLM, stores what it learns with provenance, replies when safe,
+and schedules the next touch. Dashboard shows who is available when.
 
-First, run the development server:
+See `CLAUDE.md` for the engineering rules and `docs/` for the spec.
+
+## Local development
 
 ```bash
+cp .env.example .env.local   # fill in values
+npm install
+npm run db:migrate           # applies supabase/migrations to the project in .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Structure
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+supabase/migrations/   SQL, applied in order
+src/app/               routes (App Router)
+src/lib/policy/        deterministic decision functions (no AI here)
+src/lib/ai/            model adapter + prompts loader
+src/lib/email/         Resend send/receive
+src/lib/workers/       dispatcher, reply processor
+src/proxy.ts           auth/session refresh
+tests/                 vitest; tests/replies is the classifier suite
+```
