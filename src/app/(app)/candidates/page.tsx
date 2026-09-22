@@ -10,7 +10,8 @@ import { formatDate, formatAvailability } from "@/lib/format";
 export const metadata = { title: "Candidates" };
 
 const PAGE_SIZE = 25;
-const MARKET_OPTIONS = ["AVAILABLE_NOW", "OPEN_TO_RIGHT_OPPORTUNITY", "OPEN_LATER", "PASSIVE", "NOT_LOOKING", "NOT_INTERESTED", "UNKNOWN"];
+const MARKET_OPTIONS = ["AVAILABLE_NOW", "OPEN_TO_RIGHT_OPPORTUNITY", "OPEN_LATER", "PASSIVE", "NOT_LOOKING", "NOT_INTERESTED", "UNKNOWN"] as const;
+type Market = (typeof MARKET_OPTIONS)[number];
 
 export default async function CandidatesPage(props: { searchParams: Promise<{ q?: string; market?: string; campaign?: string; page?: string }> }) {
   const sp = await props.searchParams;
@@ -29,7 +30,7 @@ export default async function CandidatesPage(props: { searchParams: Promise<{ q?
     const q = sp.q.replace(/[%,]/g, " ").trim();
     query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%,current_company.ilike.%${q}%,current_title.ilike.%${q}%`);
   }
-  if (sp.market && MARKET_OPTIONS.includes(sp.market)) query = query.eq("market_status", sp.market);
+  if (sp.market && (MARKET_OPTIONS as readonly string[]).includes(sp.market)) query = query.eq("market_status", sp.market as Market);
 
   const [{ data: rows, count }, { count: total }, { count: enrolled }, { data: campaigns }] = await Promise.all([
     query,

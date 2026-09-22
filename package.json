@@ -10,7 +10,8 @@
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "db:status": "node --env-file=.env.local scripts/migrate.mjs --status",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:types": "supabase gen types typescript --project-id hhdtretmidmdfmkopdyj --schema public > src/lib/database.types.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

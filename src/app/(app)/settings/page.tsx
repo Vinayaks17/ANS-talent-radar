@@ -28,7 +28,7 @@ export default async function SettingsPage() {
     <>
       <PageHeader title="Settings" subtitle="System ceilings · campaigns cannot exceed these" />
       <div className="p-8 space-y-5">
-        <SettingsForm settings={settings} isAdmin={s.role === "admin"} />
+        <SettingsForm settings={{ ...settings, models: (settings.models ?? {}) as Record<string, string> }} isAdmin={s.role === "admin"} />
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
           <SendersPanel senders={(senders ?? []).map((x) => ({ ...x, warmup_day: daysSince(x.warmup_started_at) + 1 }))} isAdmin={s.role === "admin"} />
           <Card>

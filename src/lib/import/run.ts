@@ -1,5 +1,6 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db, Tables } from "@/lib/db";
+import type { Json } from "@/lib/database.types";
 import type { ImportRow } from "./parse";
 import { timezoneFromLocation } from "@/lib/timezone";
 
@@ -20,7 +21,7 @@ async function chunked<T, R>(items: T[], size: number, fn: (batch: T[]) => Promi
 }
 
 /** Which rows already exist (by email, then phone, then LinkedIn) and which are suppressed. */
-export async function analyzeRows(db: SupabaseClient, orgId: string, rows: ImportRow[]) {
+export async function analyzeRows(db: Db, orgId: string, rows: ImportRow[]) {
   const emails = rows.map((r) => r.email_normalized);
   const phones = rows.map((r) => r.phone_normalized).filter((p): p is string => !!p);
   const links = rows.map((r) => r.linkedin_url).filter((l): l is string => !!l);
@@ -63,7 +64,7 @@ export async function analyzeRows(db: SupabaseClient, orgId: string, rows: Impor
   return { matchFor, suppressedSet };
 }
 
-export async function analyzeImport(db: SupabaseClient, orgId: string, rows: ImportRow[], meta: { duplicateInFile: number; invalid: number }): Promise<ImportAnalysis> {
+export async function analyzeImport(db: Db, orgId: string, rows: ImportRow[], meta: { duplicateInFile: number; invalid: number }): Promise<ImportAnalysis> {
   const { matchFor, suppressedSet } = await analyzeRows(db, orgId, rows);
   let willCreate = 0, willUpdate = 0, suppressed = 0;
   for (const r of rows) {
@@ -74,7 +75,7 @@ export async function analyzeImport(db: SupabaseClient, orgId: string, rows: Imp
 }
 
 export async function commitImport(
-  db: SupabaseClient,
+  db: Db,
   orgId: string,
   userId: string,
   rows: ImportRow[],
@@ -90,7 +91,8 @@ export async function commitImport(
     for (const o of (data ?? []) as { email: string; user_id: string }[]) owners.set(o.email, o.user_id);
   }
 
-  const toInsert: Record<string, unknown>[] = [];
+  type Insert = Omit<Tables<"candidates">, "id" | "created_at" | "updated_at"> extends infer T ? Partial<T> & { org_id: string; email: string; email_normalized: string } : never;
+  const toInsert: Insert[] = [];
   const toUpdate: { id: string; patch: Record<string, unknown> }[] = [];
   let suppressedCount = 0;
 
@@ -130,14 +132,14 @@ export async function commitImport(
 
   for (const u of toUpdate) {
     if (Object.keys(u.patch).length === 0) continue;
-    const { error } = await db.rpc("fill_candidate_blanks", { p_id: u.id, p_patch: u.patch });
+    const { error } = await db.rpc("fill_candidate_blanks", { p_id: u.id, p_patch: u.patch as Json });
     if (error) errors.push({ reason: `update ${u.id} failed: ${error.message}` }); else updated++;
   }
 
   const { data: imp } = await db.from("imports").insert({
     org_id: orgId, filename: meta.filename, row_count: rows.length + meta.duplicateInFile + meta.invalid.length,
     created_count: created, updated_count: updated, skipped_duplicate: meta.duplicateInFile,
-    skipped_suppressed: suppressedCount, skipped_invalid: meta.invalid.length, errors, created_by: userId,
+    skipped_suppressed: suppressedCount, skipped_invalid: meta.invalid.length, errors: errors as Json, created_by: userId,
   }).select("id").single();
 
   return { importId: imp?.id ?? null, created, updated, suppressed: suppressedCount, duplicateInFile: meta.duplicateInFile, invalid: meta.invalid.length, errors };

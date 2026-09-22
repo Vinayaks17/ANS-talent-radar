@@ -1,5 +1,6 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "@/lib/db";
+import type { Json } from "@/lib/database.types";
 
 export type AuditInput = {
   orgId: string;
@@ -17,7 +18,7 @@ export type AuditInput = {
 };
 
 /** Every automated or human decision goes through here. Never throws. */
-export async function audit(db: SupabaseClient, e: AuditInput) {
+export async function audit(db: Db, e: AuditInput) {
   const { error } = await db.from("audit_events").insert({
     org_id: e.orgId,
     candidate_id: e.candidateId ?? null,
@@ -30,7 +31,7 @@ export async function audit(db: SupabaseClient, e: AuditInput) {
     output_ref: e.outputRef ?? null,
     decision: e.decision ?? null,
     reason: e.reason ?? null,
-    metadata: e.metadata ?? {},
+    metadata: (e.metadata ?? {}) as Json,
   });
   if (error) console.error("audit insert failed", error.message, e.eventType);
 }

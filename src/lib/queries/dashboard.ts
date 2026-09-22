@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "@/lib/db";
 
 export type DashboardData = {
   total: number;
@@ -17,7 +17,7 @@ export type DashboardData = {
   outreachPaused: boolean;
 };
 
-export async function loadDashboard(db: SupabaseClient, orgId: string): Promise<DashboardData> {
+export async function loadDashboard(db: Db, orgId: string): Promise<DashboardData> {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
   const verifiedCutoff = new Date(now.getTime() - 180 * 86400000).toISOString();
