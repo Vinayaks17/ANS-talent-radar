@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "./settings-form";
 import { SendersPanel } from "./senders-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { daysSince } from "@/lib/format";
 
 export const metadata = { title: "Settings" };
 
@@ -16,7 +17,6 @@ export default async function SettingsPage() {
     supabase.from("suppressions").select("reason").eq("org_id", s.orgId),
   ]);
   if (!settings) throw new Error("Settings row missing for org");
-  const now = Date.now();
 
   const counts = (suppressionCounts ?? []).reduce<Record<string, number>>((acc, r) => {
     acc[r.reason] = (acc[r.reason] ?? 0) + 1;
@@ -30,7 +30,7 @@ export default async function SettingsPage() {
       <div className="p-8 space-y-5">
         <SettingsForm settings={settings} isAdmin={s.role === "admin"} />
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
-          <SendersPanel senders={(senders ?? []).map((x) => ({ ...x, warmup_day: Math.floor((now - new Date(x.warmup_started_at).getTime()) / 86400000) + 1 }))} isAdmin={s.role === "admin"} />
+          <SendersPanel senders={(senders ?? []).map((x) => ({ ...x, warmup_day: daysSince(x.warmup_started_at) + 1 }))} isAdmin={s.role === "admin"} />
           <Card>
             <CardHeader><CardTitle className="text-sm">Suppression list</CardTitle></CardHeader>
             <CardContent className="space-y-2">

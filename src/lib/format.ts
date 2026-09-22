@@ -41,3 +41,8 @@ export function money(v: { currency?: string; amount?: number; minimum?: number 
   const s = new Intl.NumberFormat("en-US", { style: "currency", currency: v.currency ?? "USD", maximumFractionDigits: 0 }).format(n);
   return v.minimum != null && v.amount == null ? `${s}+` : s;
 }
+
+/** Whole days elapsed since an ISO timestamp, minimum 0. */
+export function daysSince(iso: string) {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+}
