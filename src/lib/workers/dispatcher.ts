@@ -182,45 +182,56 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
     tags: { org: a.org_id.slice(0, 8), type: a.action_type },
   });
 
-  // 7. Record
+  // 7. Record — the email is out; from here nothing may throw, or a retry would send it twice.
+  // Complete the action first so the one-pending-send index lets the next step in.
+  await finish(db, a, "COMPLETED");
   const kind = ACTION_TO_KIND[a.action_type] ?? "MANUAL";
-  await db.from("messages").insert({
+  const problems: string[] = [];
+  const tryStep = async (label: string, fn: () => PromiseLike<{ error: { message: string } | null }>) => {
+    try {
+      const r = await fn();
+      if (r.error) problems.push(`${label}: ${r.error.message}`);
+    } catch (e) { problems.push(`${label}: ${e instanceof Error ? e.message : String(e)}`); }
+  };
+
+  await tryStep("message", () => db.from("messages").insert({
     org_id: a.org_id, conversation_id: conversation.id, candidate_id: cand.id, campaign_id: a.campaign_id, sender_id: sender.id,
     provider: "resend", provider_message_id: providerId, direction: "OUTBOUND", from_address: sender.email, to_address: cand.email,
     subject, text_body: text, message_type: kind, step_number: stepNumber, sent_at: now.toISOString(), delivery_status: "SENT",
-    ai_generated: useAi && false, ai_model: null, prompt_version: null,
-  });
-  await db.from("conversations").update({ last_message_at: now.toISOString() }).eq("id", conversation.id);
+    ai_generated: false, ai_model: null, prompt_version: null,
+  }));
+  await tryStep("conversation", () => db.from("conversations").update({ last_message_at: now.toISOString() }).eq("id", conversation.id));
 
   // 8. State + next step
   let nextAt: Date | null = null;
   if (campaign && stepNumber != null) {
     const { data: next } = await db.from("campaign_steps").select("*").eq("campaign_id", campaign.id).eq("step_number", stepNumber + 1).maybeSingle();
     if (next) {
-      nextAt = nextSendSlot(new Date(now.getTime() + next.delay_days * 86400000), tz, window);
-      await db.from("scheduled_actions").insert({
+      const at = nextSendSlot(new Date(now.getTime() + next.delay_days * 86400000), tz, window);
+      nextAt = at;
+      await tryStep("next-step", () => db.from("scheduled_actions").insert({
         org_id: a.org_id, candidate_id: cand.id, campaign_id: campaign.id, conversation_id: conversation.id,
         action_type: STEP_TO_ACTION[next.message_type] ?? "SEND_FOLLOW_UP", payload: { step_number: next.step_number },
-        scheduled_for: nextAt.toISOString(), status: "PENDING", created_by_label: "dispatcher:next-step",
-      });
+        scheduled_for: at.toISOString(), status: "PENDING", created_by_label: "dispatcher:next-step",
+      }));
     }
     if (enrollment) {
-      await db.from("campaign_enrollments").update({
+      await tryStep("enrollment", () => db.from("campaign_enrollments").update({
         current_step: stepNumber, unanswered_count: enrollment.unanswered_count + 1,
         status: next ? "ENROLLED" : "COMPLETED", completed_at: next ? null : now.toISOString(),
-      }).eq("id", enrollment.id);
+      }).eq("id", enrollment.id));
     }
   }
-  await db.from("candidates").update({
+  await tryStep("candidate", () => db.from("candidates").update({
     last_contacted_at: now.toISOString(),
     communication_status: a.action_type === "SEND_REPLY" ? cand.communication_status : nextAt ? "WAITING_FOR_REPLY" : "CLOSED",
     next_contact_at: nextAt?.toISOString() ?? null,
-  }).eq("id", cand.id);
+  }).eq("id", cand.id));
 
-  await finish(db, a, "COMPLETED");
   await audit(db, {
-    orgId: a.org_id, candidateId: cand.id, eventType: "EMAIL_SENT", actor: "SYSTEM", decision: a.action_type,
-    reason: `step ${stepNumber ?? "-"} via ${sender.email}`, outputRef: providerId, metadata: { action_id: a.id, next_at: nextAt?.toISOString() ?? null },
+    orgId: a.org_id, candidateId: cand.id, eventType: problems.length ? "EMAIL_SENT_WITH_ERRORS" : "EMAIL_SENT", actor: "SYSTEM", decision: a.action_type,
+    reason: `step ${stepNumber ?? "-"} via ${sender.email}${problems.length ? " · " + problems.join("; ") : ""}`, outputRef: providerId,
+    metadata: { action_id: a.id, next_at: nextAt?.toISOString() ?? null },
   });
   return { outcome: "sent" };
 }

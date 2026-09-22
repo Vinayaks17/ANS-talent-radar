@@ -22,6 +22,10 @@ export type OutboundEmail = {
 
 /** Plain-text send with the headers Gmail/Yahoo bulk-sender rules require. */
 export async function sendEmail(m: OutboundEmail): Promise<{ id: string }> {
+  if (process.env.EMAIL_DRY_RUN === "1") {
+    console.log(`[dry-run] ${m.fromEmail} → ${m.to} | ${m.subject}`);
+    return { id: `dry_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` };
+  }
   const headers: Record<string, string> = {
     "List-Unsubscribe": `<${m.unsubscribeUrl}>`,
     "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
