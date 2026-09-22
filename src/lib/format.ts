@@ -6,7 +6,8 @@ export function formatDate(iso: string | null | undefined, opts: Intl.DateTimeFo
 }
 
 export function formatDateTime(iso: string | null | undefined) {
-  return formatDate(iso, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const v = formatDate(iso, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+  return v === "—" ? v : `${v} UTC`;
 }
 
 /** "March 2027 (approx.)" — keeps the precision the candidate actually gave. */
