@@ -66,7 +66,16 @@ export default async function CandidatePage(props: PageProps<"/candidates/[id]">
                 {(facts ?? []).map((f) => (
                   <div key={f.id} className="grid grid-cols-[140px_1fr_110px_44px] gap-2 text-[13px] items-center">
                     <div className="text-muted-foreground">{f.fact_type.replace(/_/g, " ").toLowerCase()}</div>
-                    <div className="truncate">{typeof f.value_json === "object" && f.value_json ? Object.entries(f.value_json as Record<string, unknown>).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${String(v)}`).join(" · ") : String(f.value_json)}</div>
+                    {(() => {
+                      const v = (f.value_json ?? {}) as Record<string, unknown>;
+                      if (typeof v.value === "string") return (
+                        <div className="min-w-0" title={typeof v.quote === "string" ? `“${v.quote}”` : undefined}>
+                          <div className="truncate">{v.value}</div>
+                          {typeof v.quote === "string" && <div className="truncate text-[11px] text-muted-foreground italic">&ldquo;{v.quote}&rdquo;</div>}
+                        </div>
+                      );
+                      return <div className="truncate">{typeof f.value_json === "object" && f.value_json ? Object.entries(v).filter(([, x]) => x != null).map(([k, x]) => `${k}: ${String(x)}`).join(" · ") : String(f.value_json)}</div>;
+                    })()}
                     <div className="text-xs text-muted-foreground">{f.source.toLowerCase()} · {formatDate(f.reported_at)}</div>
                     <div className="font-semibold text-right">{f.confidence != null ? Number(f.confidence).toFixed(2) : "—"}</div>
                   </div>

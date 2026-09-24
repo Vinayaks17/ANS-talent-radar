@@ -44,6 +44,8 @@ const settingsSchema = z.object({
   approval_required: z.boolean(),
   human_review_categories: z.array(z.string()),
   models: z.record(z.string(), z.string()),
+  ai_enabled: z.boolean(),
+  ai_monthly_budget_usd: z.coerce.number().min(0).max(100000),
 });
 
 export type SettingsState = { error?: string; saved?: boolean };
@@ -66,6 +68,8 @@ export async function saveSettings(_prev: SettingsState, formData: FormData): Pr
     auto_threshold: formData.get("auto_threshold"),
     review_threshold: formData.get("review_threshold"),
     approval_required: formData.get("approval_required") === "on",
+    ai_enabled: formData.get("ai_enabled") === "on",
+    ai_monthly_budget_usd: formData.get("ai_monthly_budget_usd"),
     human_review_categories: formData.getAll("human_review_categories").map(String),
     models: Object.fromEntries(
       ["outreach", "classify", "reply", "memory", "resume", "match"].map((k) => [k, String(formData.get(`model_${k}`) ?? "gpt-5.6-luna")]),

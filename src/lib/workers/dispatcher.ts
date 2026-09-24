@@ -3,11 +3,21 @@ import { randomBytes } from "node:crypto";
 import type { Db, Tables } from "@/lib/db";
 import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
-import { checkEligibility, checkLimits } from "@/lib/policy/eligibility";
+import { checkEligibility, checkLimits, isReservedDomain } from "@/lib/policy/eligibility";
 import { nextSendSlot, isValidTimeZone, partsIn } from "@/lib/policy/send-window";
 import { isSuppressed, suppress } from "@/lib/policy/suppression";
 import { merge } from "@/lib/campaigns/templates";
 import { sendEmail } from "@/lib/email/resend";
+import { assertAiAvailable, AiUnavailable } from "@/lib/ai/client";
+import { writeOutreach } from "@/lib/ai/tasks";
+import { validateDraft } from "@/lib/policy/reply-decision";
+import { scheduleReconnect } from "./reconnect";
+
+/** Used when a RECONNECT has no campaign step; the AI rewrites it with the candidate's memory when enabled. */
+const RECONNECT_TEMPLATE = {
+  subject: "Checking back in, {{first_name}}",
+  body: "Hi {{first_name}},\n\nWhen we last spoke you mentioned it might be a better time to talk around now. Is that still the case, or should I check back later?\n\n{{sender_name}}\n{{org_name}}",
+};
 
 type Action = Tables<"scheduled_actions">;
 const SEQUENCE_TYPES = new Set(["SEND_INITIAL", "SEND_FOLLOW_UP", "SEND_FINAL", "SEND_NURTURE", "RECONNECT"]);
@@ -16,13 +26,22 @@ const ACTION_TO_KIND: Record<string, Tables<"messages">["message_type"]> = { SEN
 
 export type DispatchSummary = { claimed: number; sent: number; deferred: number; cancelled: number; failed: number; details: string[] };
 
-export async function runDispatcher(db: Db, opts: { limit?: number; workerId?: string } = {}): Promise<DispatchSummary> {
+export async function runDispatcher(db: Db, opts: { limit?: number; workerId?: string; budgetMs?: number } = {}): Promise<DispatchSummary> {
+  const started = Date.now();
+  const budgetMs = opts.budgetMs ?? 240_000; // stay well inside the route's 300s limit
   const workerId = opts.workerId ?? `w-${randomBytes(3).toString("hex")}`;
   const { data: actions, error } = await db.rpc("claim_scheduled_actions", { p_limit: opts.limit ?? 50, p_worker: workerId });
   if (error) throw new Error(`claim failed: ${error.message}`);
   const summary: DispatchSummary = { claimed: actions?.length ?? 0, sent: 0, deferred: 0, cancelled: 0, failed: 0, details: [] };
 
-  for (const a of actions ?? []) {
+  for (const [i, a] of (actions ?? []).entries()) {
+    if (Date.now() - started > budgetMs) {
+      // Out of time: hand the rest back untouched (not counted as an attempt).
+      const rest = (actions ?? []).slice(i);
+      for (const r of rest) await db.from("scheduled_actions").update({ status: "PENDING", attempt_count: Math.max(0, r.attempt_count - 1), locked_at: null, locked_by: null }).eq("id", r.id).eq("status", "PROCESSING");
+      summary.details.push(`time budget reached — released ${rest.length}`);
+      break;
+    }
     try {
       const r = await processAction(db, a);
       summary[r.outcome]++;
@@ -77,6 +96,12 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
     if (cand.communication_status !== "SUPPRESSED") await suppress(db, { orgId: a.org_id, emailNormalized: cand.email_normalized, candidateId: cand.id, reason: "MANUAL", byLabel: "dispatcher:list-check", note: "found on list at send time" });
     await finish(db, a, "CANCELLED", "SUPPRESSED");
     return { outcome: "cancelled", reason: "SUPPRESSED" };
+  }
+
+  // Test / placeholder addresses (RFC 2606 names) are never mailed: they only bounce and hurt sender reputation.
+  if (isReservedDomain(cand.email_normalized) && process.env.ALLOW_RESERVED_DOMAINS !== "1") {
+    await finish(db, a, "CANCELLED", "RESERVED_DOMAIN");
+    return { outcome: "cancelled", reason: "RESERVED_DOMAIN" };
   }
 
   const campaign = a.campaign_id ? (await db.from("campaigns").select("*").eq("id", a.campaign_id).single()).data : null;
@@ -142,24 +167,55 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
   }
 
   // 5. Compose
-  const payload = (a.payload ?? {}) as { step_number?: number; subject?: string; text?: string; review_item_id?: string };
-  let subject: string, text: string, stepNumber: number | null = null, useAi = false;
+  const payload = (a.payload ?? {}) as {
+    step_number?: number; subject?: string; text?: string; review_item_id?: string;
+    ai_generated?: boolean; ai_model?: string | null; prompt_version?: string | null; approved_by?: string | null; reconnect_at?: string | null;
+  };
+  let subject: string, text: string, stepNumber: number | null = null;
+  let aiMeta: { model: string; promptVersion: string } | null = null;
+  const vars = { first_name: cand.first_name, last_name: cand.last_name, sender_name: sender.display_name, org_name: org.name, sector: campaign?.sector, current_company: cand.current_company, current_title: cand.current_title };
 
   if (a.action_type === "SEND_REPLY") {
     if (!payload.text) { await finish(db, a, "CANCELLED", "EMPTY_REPLY"); return { outcome: "cancelled", reason: "EMPTY_REPLY" }; }
     subject = payload.subject ?? "Re: your reply";
     text = payload.text;
+    if (payload.ai_generated && payload.ai_model) aiMeta = { model: payload.ai_model, promptVersion: payload.prompt_version ?? "" };
   } else {
-    const { data: step } = campaign && payload.step_number
-      ? await db.from("campaign_steps").select("*").eq("campaign_id", campaign.id).eq("step_number", payload.step_number).maybeSingle()
-      : { data: null };
-    if (!step) { await finish(db, a, "CANCELLED", "NO_STEP"); return { outcome: "cancelled", reason: "NO_STEP" }; }
-    stepNumber = step.step_number;
-    useAi = step.use_ai;
-    const vars = { first_name: cand.first_name, last_name: cand.last_name, sender_name: sender.display_name, org_name: org.name, sector: campaign?.sector, current_company: cand.current_company, current_title: cand.current_title };
-    subject = merge(step.template_subject ?? "Quick question, {{first_name}}", vars);
-    text = merge(step.template_body ?? "", vars);
-    // AI-written first touch plugs in here (week 2). Until then use_ai falls back to the template.
+    let template: { subject: string; body: string };
+    let useAi: boolean;
+    if (a.action_type === "RECONNECT" && !payload.step_number) {
+      template = RECONNECT_TEMPLATE;
+      useAi = true;
+    } else {
+      const { data: step } = campaign && payload.step_number
+        ? await db.from("campaign_steps").select("*").eq("campaign_id", campaign.id).eq("step_number", payload.step_number).maybeSingle()
+        : { data: null };
+      if (!step) { await finish(db, a, "CANCELLED", "NO_STEP"); return { outcome: "cancelled", reason: "NO_STEP" }; }
+      stepNumber = step.step_number;
+      useAi = step.use_ai;
+      template = { subject: step.template_subject ?? "Quick question, {{first_name}}", body: step.template_body ?? "" };
+    }
+    subject = merge(template.subject, vars);
+    text = merge(template.body, vars);
+
+    // AI-written version of the approved template. Any failure or failed check → the template goes out instead.
+    if (useAi && text.trim()) {
+      try {
+        await assertAiAvailable(db, settings);
+        const purpose = (ACTION_TO_KIND[a.action_type] ?? "INITIAL") as "INITIAL" | "FOLLOW_UP" | "FINAL" | "NURTURE" | "RECONNECT";
+        const w = await writeOutreach(db, { settings, candidate: cand, purpose, sender: { name: sender.display_name, firm: org.name }, campaign: campaign ? { objective: campaign.objective, sector: campaign.sector } : null, template: { subject, body: text } });
+        const problems = validateDraft(w.data.body, { minWords: 20, maxWords: 180 });
+        if (problems.length || w.data.subject.length > 90) {
+          await audit(db, { orgId: a.org_id, candidateId: cand.id, eventType: "AI_OUTREACH_REJECTED", actor: "SYSTEM", model: w.model, promptVersion: w.promptVersion, decision: "TEMPLATE_USED", reason: problems.join(", ") || "subject too long" });
+        } else {
+          subject = w.data.subject.trim();
+          text = w.data.body.trim();
+          aiMeta = { model: w.model, promptVersion: w.promptVersion };
+        }
+      } catch (e) {
+        if (!(e instanceof AiUnavailable)) console.error("outreach writer failed", e instanceof Error ? e.message : e);
+      }
+    }
   }
   if (!text.trim()) { await finish(db, a, "CANCELLED", "EMPTY_BODY"); return { outcome: "cancelled", reason: "EMPTY_BODY" }; }
 
@@ -180,6 +236,7 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
     fromName: sender.display_name, fromEmail: sender.email, to: cand.email, replyTo, subject, text, unsubscribeUrl,
     inReplyTo: lastOut?.internet_message_id ?? null,
     tags: { org: a.org_id.slice(0, 8), type: a.action_type },
+    idempotencyKey: `action-${a.id}`,
   });
 
   // 7. Record — the email is out; from here nothing may throw, or a retry would send it twice.
@@ -198,7 +255,7 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
     org_id: a.org_id, conversation_id: conversation.id, candidate_id: cand.id, campaign_id: a.campaign_id, sender_id: sender.id,
     provider: "resend", provider_message_id: providerId, direction: "OUTBOUND", from_address: sender.email, to_address: cand.email,
     subject, text_body: text, message_type: kind, step_number: stepNumber, sent_at: now.toISOString(), delivery_status: "SENT",
-    ai_generated: false, ai_model: null, prompt_version: null,
+    ai_generated: !!aiMeta, ai_model: aiMeta?.model ?? null, prompt_version: aiMeta?.promptVersion ?? null, approved_by: payload.approved_by ?? null,
   }));
   await tryStep("conversation", () => db.from("conversations").update({ last_message_at: now.toISOString() }).eq("id", conversation.id));
 
@@ -224,12 +281,21 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
   }
   await tryStep("candidate", () => db.from("candidates").update({
     last_contacted_at: now.toISOString(),
-    communication_status: a.action_type === "SEND_REPLY" ? cand.communication_status : nextAt ? "WAITING_FOR_REPLY" : "CLOSED",
+    communication_status: a.action_type === "SEND_REPLY" ? "CONVERSATION_ACTIVE" : nextAt || a.action_type === "RECONNECT" ? "WAITING_FOR_REPLY" : "CLOSED",
     next_contact_at: nextAt?.toISOString() ?? null,
   }).eq("id", cand.id));
 
+  // A reply that also agreed a later check-in ("I'll come back to you in March"): schedule it through policy.
+  if (a.action_type === "SEND_REPLY" && payload.reconnect_at) {
+    try {
+      const r = await scheduleReconnect(db, { orgId: a.org_id, candidateId: cand.id, conversationId: conversation.id, at: new Date(payload.reconnect_at), statusAfter: "NURTURE_SCHEDULED", label: "reply:reconnect" });
+      if (!r.ok) problems.push(`reconnect: ${r.reason}`);
+    } catch (e) { problems.push(`reconnect: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
   await audit(db, {
     orgId: a.org_id, candidateId: cand.id, eventType: problems.length ? "EMAIL_SENT_WITH_ERRORS" : "EMAIL_SENT", actor: "SYSTEM", decision: a.action_type,
+    model: aiMeta?.model ?? null, promptVersion: aiMeta?.promptVersion ?? null,
     reason: `step ${stepNumber ?? "-"} via ${sender.email}${problems.length ? " · " + problems.join("; ") : ""}`, outputRef: providerId,
     metadata: { action_id: a.id, next_at: nextAt?.toISOString() ?? null },
   });

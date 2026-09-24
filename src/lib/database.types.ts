@@ -835,6 +835,8 @@ export type Database = {
       }
       org_settings: {
         Row: {
+          ai_enabled: boolean
+          ai_monthly_budget_usd: number
           approval_required: boolean
           auto_threshold: number
           default_nurture_days: number
@@ -857,6 +859,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_enabled?: boolean
+          ai_monthly_budget_usd?: number
           approval_required?: boolean
           auto_threshold?: number
           default_nurture_days?: number
@@ -879,6 +883,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_enabled?: boolean
+          ai_monthly_budget_usd?: number
           approval_required?: boolean
           auto_threshold?: number
           default_nurture_days?: number
@@ -1295,11 +1301,24 @@ export type Database = {
         Args: { p_id: string; p_patch: Json }
         Returns: undefined
       }
+      find_user_id_by_email: { Args: { p_email: string }; Returns: string }
+      invoke_cron_dispatch: { Args: never; Returns: number }
       join_org_by_email_domain: {
         Args: never
         Returns: {
           org_id: string
           role: Database["public"]["Enums"]["member_role"]
+        }[]
+      }
+      list_org_members: {
+        Args: { p_org: string }
+        Returns: {
+          created_at: string
+          display_name: string
+          email: string
+          last_sign_in_at: string
+          role: Database["public"]["Enums"]["member_role"]
+          user_id: string
         }[]
       }
       resolve_member_emails: {

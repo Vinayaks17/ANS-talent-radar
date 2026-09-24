@@ -40,9 +40,10 @@ type Settings = {
   send_days: number[]; send_window_start: string; send_window_end: string; default_timezone: string;
   auto_threshold: number; review_threshold: number; approval_required: boolean;
   human_review_categories: string[]; models: Record<string, string>;
+  ai_enabled: boolean; ai_monthly_budget_usd: number;
 };
 
-export function SettingsForm({ settings, isAdmin }: { settings: Settings; isAdmin: boolean }) {
+export function SettingsForm({ settings, isAdmin, aiSpentUsd }: { settings: Settings; isAdmin: boolean; aiSpentUsd: number }) {
   const [state, action, pending] = useActionState<SettingsState, FormData>(saveSettings, {});
   const ro = !isAdmin;
 
@@ -77,6 +78,14 @@ export function SettingsForm({ settings, isAdmin }: { settings: Settings; isAdmi
         <Card>
           <CardHeader><CardTitle className="text-sm">AI behaviour</CardTitle></CardHeader>
           <CardContent className="space-y-4">
+            <div className="grid grid-cols-[1fr_170px] gap-3 items-end">
+              <label className="flex items-start gap-3 text-sm">
+                <input type="checkbox" name="ai_enabled" defaultChecked={settings.ai_enabled} disabled={ro} className="mt-0.5" />
+                <span><span className="block font-bold">AI enabled</span><span className="block text-xs text-muted-foreground">Off = every reply goes to a person and every email uses its template.</span></span>
+              </label>
+              <Field label="Monthly AI budget (USD)" name="ai_monthly_budget_usd" value={settings.ai_monthly_budget_usd} step="1" ro={ro} />
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">Spent this month: <strong className="text-foreground">${aiSpentUsd.toFixed(2)}</strong> of ${Number(settings.ai_monthly_budget_usd).toFixed(0)}. At the limit the AI stops and work falls back to people and templates.</p>
             <label className="flex items-start gap-3 p-3 rounded-lg bg-[#FCE8D2] text-[#7C3A00]">
               <input type="checkbox" name="approval_required" defaultChecked={settings.approval_required} disabled={ro} className="mt-0.5" />
               <span>
@@ -88,7 +97,7 @@ export function SettingsForm({ settings, isAdmin }: { settings: Settings; isAdmi
               <Field label="Fully automatic at confidence ≥" name="auto_threshold" value={settings.auto_threshold} step="0.01" ro={ro} />
               <Field label="Human review below" name="review_threshold" value={settings.review_threshold} step="0.01" ro={ro} />
             </div>
-            <p className="text-xs text-muted-foreground">Between the two only safe actions run automatically. Opt-outs bypass thresholds and suppress immediately.</p>
+            <p className="text-xs text-muted-foreground">Between the two, facts and statuses update automatically but replies wait for approval. Opt-outs bypass thresholds and suppress immediately.</p>
             <div className="space-y-1.5">
               <Label>Always route to a human</Label>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">

@@ -1,6 +1,9 @@
 /**
  * End-to-end loop against the dev database with email sending stubbed.
+ * The reply step calls the real classifier/writer (Luna, ~$0.002) when
+ * OPENAI_API_KEY is set; without it the no-AI fallback path is asserted.
  * Run: RUN_INTEGRATION=1 npx vitest run tests/integration
+ * Pause the pg_cron job first so the live dispatcher cannot claim test rows.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createClient } from "@supabase/supabase-js";
@@ -14,16 +17,19 @@ vi.mock("@/lib/email/resend", () => ({
 
 const run = process.env.RUN_INTEGRATION === "1";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!, key = process.env.SUPABASE_SECRET_KEY!;
-const db = createClient<Database>(url, key, { auth: { persistSession: false } });
+const db = run ? createClient<Database>(url, key, { auth: { persistSession: false } }) : (null as never);
+const withAi = !!process.env.OPENAI_API_KEY;
 const tag = `e2e${Date.now().toString(36)}`;
-const ids: { org?: string; sender?: string; campaign?: string; candidates: string[] } = { candidates: [] };
+const ids: { org?: string; sender?: string; campaign?: string; candidates: string[]; wasPaused?: boolean } = { candidates: [] };
 
 describe.skipIf(!run)("outreach loop (dry run)", () => {
   beforeAll(async () => {
     process.env.APP_URL = "http://localhost:3000";
     process.env.CRON_SECRET = "x".repeat(20);
+    process.env.ALLOW_RESERVED_DOMAINS = "1"; // test candidates use example.com; sending is mocked
     const { data: org } = await db.from("orgs").select("id").eq("slug", "ans").single();
     ids.org = org!.id;
+    ids.wasPaused = (await db.from("org_settings").select("outreach_paused").eq("org_id", ids.org).single()).data?.outreach_paused ?? true;
     // Wide-open window so the dispatcher does not defer during the test
     await db.from("org_settings").update({ send_days: [1, 2, 3, 4, 5, 6, 7], send_window_start: "00:00", send_window_end: "23:59", outreach_paused: false }).eq("org_id", ids.org);
     const { data: sender } = await db.from("senders").insert({ org_id: ids.org, email: `${tag}@talent.example.com`, display_name: "Test Sender", status: "WARMED", daily_cap_new: 40, daily_cap_followup: 20 }).select("id").single();
@@ -46,7 +52,7 @@ describe.skipIf(!run)("outreach loop (dry run)", () => {
     await db.from("suppressions").delete().eq("org_id", ids.org).like("identifier", `${tag}%`);
     await db.from("inbound_events").delete().like("provider_event_id", `${tag}%`);
     await db.from("audit_events").delete().eq("org_id", ids.org).gte("created_at", new Date(Date.now() - 600000).toISOString()).is("candidate_id", null);
-    await db.from("org_settings").update({ send_days: [2, 3, 4], send_window_start: "09:00", send_window_end: "16:00" }).eq("org_id", ids.org);
+    await db.from("org_settings").update({ send_days: [2, 3, 4], send_window_start: "09:00", send_window_end: "16:00", outreach_paused: ids.wasPaused ?? true }).eq("org_id", ids.org);
   });
 
   it("enrols only eligible candidates and schedules initial sends", async () => {
@@ -83,13 +89,62 @@ describe.skipIf(!run)("outreach loop (dry run)", () => {
     await db.from("inbound_events").insert({ provider: "resend", provider_event_id: `${tag}-ev-1`, event_type: "email.received", payload: { type: "email.received", data: { email_id: `${tag}-recv-1` } } });
     const { processInboundEvents } = await import("@/lib/workers/inbound");
     const out = await processInboundEvents(db, 20);
-    expect(out.some((o) => o.includes("review queue"))).toBe(true);
-    const { data: item } = await db.from("review_items").select("category").eq("candidate_id", ids.candidates[0]).eq("status", "OPEN").single();
-    expect(item!.category).toBe("REPLY_RECEIVED");
+    const { data: item } = await db.from("review_items").select("category, draft_reply, ai_classification").eq("candidate_id", ids.candidates[0]).eq("status", "OPEN").single();
+    if (withAi) {
+      // Approval mode (dev default): the AI drafts, a person approves.
+      expect(out.some((o) => o.includes("draft for approval"))).toBe(true);
+      expect(item!.category).toBe("DRAFT_APPROVAL");
+      expect(item!.draft_reply!.length).toBeGreaterThan(40);
+      const ai = item!.ai_classification as { intent: string; market_status: string; reconnect_at: string | null; availability: { date: string } | null };
+      expect(ai.intent).toBe("AVAILABLE_LATER");
+      expect(ai.market_status).toBe("OPEN_LATER");
+      expect(ai.availability?.date.slice(5, 7)).toMatch(/02|03/);
+      expect(ai.reconnect_at).not.toBeNull();
+      const { data: c } = await db.from("candidates").select("market_status, memory_summary, communication_status").eq("id", ids.candidates[0]).single();
+      expect(c!.market_status).toBe("OPEN_LATER");
+      expect(c!.memory_summary).toBeTruthy();
+      expect(c!.communication_status).toBe("HUMAN_REVIEW");
+      const { data: usage } = await db.from("ai_usage").select("action").eq("candidate_id", ids.candidates[0]);
+      expect(usage!.map((u) => u.action).sort()).toEqual(["classify", "reply"]);
+    } else {
+      expect(item!.category).toBe("REPLY_RECEIVED");
+    }
     const { data: msg } = await db.from("messages").select("reply_text").eq("candidate_id", ids.candidates[0]).eq("direction", "INBOUND").single();
     expect(msg!.reply_text).toBe("Thanks — not right now, bonus pays in Feb. Happy to talk in March.");
     const { data: pending } = await db.from("scheduled_actions").select("id").eq("candidate_id", ids.candidates[0]).eq("status", "PENDING");
     expect(pending).toHaveLength(0);
+  });
+
+  it("sends an approved reply and schedules the agreed check-in through policy", async () => {
+    const { data: item } = await db.from("review_items").select("id, conversation_id, draft_reply, ai_classification").eq("candidate_id", ids.candidates[0]).eq("status", "OPEN").single();
+    const reconnect = new Date(Date.now() + 120 * 86400000);
+    await db.from("scheduled_actions").insert({
+      org_id: ids.org!, candidate_id: ids.candidates[0], conversation_id: item!.conversation_id, action_type: "SEND_REPLY", status: "PENDING",
+      scheduled_for: new Date(Date.now() - 1000).toISOString(), created_by_label: "test",
+      payload: { subject: "Re: Quick question, Cand1", text: item!.draft_reply ?? "Thanks, I will check back in March.", review_item_id: item!.id, reconnect_at: reconnect.toISOString(), ai_generated: withAi, ai_model: withAi ? "gpt-5.6-luna" : null },
+    });
+    await db.from("review_items").update({ status: "APPROVED" }).eq("id", item!.id);
+    await db.from("candidates").update({ communication_status: "CONVERSATION_ACTIVE" }).eq("id", ids.candidates[0]);
+    const { runDispatcher } = await import("@/lib/workers/dispatcher");
+    const s = await runDispatcher(db, { limit: 50, workerId: tag });
+    expect(s.details.some((d) => d.startsWith("SEND_REPLY") && d.includes(ids.candidates[0].slice(0, 8)) && d.includes("→ sent"))).toBe(true);
+    const { data: out } = await db.from("messages").select("ai_generated").eq("candidate_id", ids.candidates[0]).eq("message_type", "REPLY").eq("direction", "OUTBOUND").single();
+    expect(out!.ai_generated).toBe(withAi);
+    const { data: rc } = await db.from("scheduled_actions").select("scheduled_for").eq("candidate_id", ids.candidates[0]).eq("action_type", "RECONNECT").eq("status", "PENDING").single();
+    expect(rc!.scheduled_for.slice(0, 10)).toBe(reconnect.toISOString().slice(0, 10));
+    const { data: c } = await db.from("candidates").select("communication_status").eq("id", ids.candidates[0]).single();
+    expect(c!.communication_status).toBe("NURTURE_SCHEDULED");
+  });
+
+  it("writes the reconnect email from memory when it comes due", async () => {
+    await db.from("scheduled_actions").update({ scheduled_for: new Date(Date.now() - 1000).toISOString() }).eq("candidate_id", ids.candidates[0]).eq("action_type", "RECONNECT").eq("status", "PENDING");
+    await db.from("candidates").update({ last_contacted_at: new Date(Date.now() - 100 * 3600000).toISOString() }).eq("id", ids.candidates[0]);
+    const { runDispatcher } = await import("@/lib/workers/dispatcher");
+    const s = await runDispatcher(db, { limit: 50, workerId: tag });
+    expect(s.details.some((d) => d.startsWith("RECONNECT") && d.includes("→ sent"))).toBe(true);
+    const { data: m } = await db.from("messages").select("text_body, ai_generated").eq("candidate_id", ids.candidates[0]).eq("message_type", "RECONNECT").single();
+    expect(m!.text_body!.length).toBeGreaterThan(40);
+    expect(m!.ai_generated).toBe(withAi);
   });
 
   it("suppresses immediately on an opt-out reply", async () => {

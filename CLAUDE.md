@@ -20,8 +20,9 @@ migrations in `supabase/migrations`, typed access through supabase-js.
 1. **AI recommends, code decides.** The LLM only understands, writes,
    summarises and recommends. Every decision (send, schedule, suppress,
    status change) goes through a deterministic function in `src/lib/policy/`.
-2. **The AI never writes to `suppressions`.** Only humans and the
-   bounce/complaint webhook insert there. Every outbound path checks
+2. **The AI never writes to `suppressions`.** Only humans, the
+   bounce/complaint webhook and policy code insert there (rule-based opt-out,
+   and `decideReply` acting on an AI opt-out signal — code does the write). Every outbound path checks
    suppression first, eligibility second, limits third — before generating a
    message.
 3. **Opt-outs bypass confidence thresholds.** Rule-based detection runs before

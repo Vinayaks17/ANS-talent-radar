@@ -7,7 +7,11 @@ import { createClient } from "@/lib/supabase/server";
 import { adminClient } from "@/lib/supabase/admin";
 import { audit } from "@/lib/audit";
 import { suppress } from "@/lib/policy/suppression";
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
+import { scheduleReconnect } from "@/lib/workers/reconnect";
+
+const reconnectField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal(""));
+const toDate = (d: string | undefined) => (d ? new Date(`${d}T14:00:00Z`) : null);
 
 export type ReviewState = { error?: string; ok?: boolean };
 
@@ -20,21 +24,31 @@ async function loadItem(itemId: string, orgId: string) {
 export async function approveReply(_p: ReviewState, fd: FormData): Promise<ReviewState> {
   const s = await getSession();
   if (!canWrite(s.role)) return { error: "Not allowed" };
-  const parsed = z.object({ itemId: z.string().uuid(), conversationId: z.string().uuid(), subject: z.string().min(1).max(200), text: z.string().min(2).max(5000) })
-    .safeParse({ itemId: fd.get("itemId"), conversationId: fd.get("conversationId"), subject: fd.get("subject"), text: fd.get("text") });
+  const parsed = z.object({ itemId: z.string().uuid(), conversationId: z.string().uuid(), subject: z.string().min(1).max(200), text: z.string().min(2).max(5000), reconnect_at: reconnectField })
+    .safeParse({ itemId: fd.get("itemId"), conversationId: fd.get("conversationId"), subject: fd.get("subject"), text: fd.get("text"), reconnect_at: fd.get("reconnect_at") ?? "" });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const { db, item } = await loadItem(parsed.data.itemId, s.orgId);
   if (!item) return { error: "Item already handled" };
 
+  // Unedited AI draft keeps its AI provenance; any human edit makes it a human message.
+  const cls = (item.ai_classification ?? {}) as { draft_model?: string; draft_prompt_version?: string };
+  const text = parsed.data.text.replace(/\r\n/g, "\n").trim(); // browsers submit textarea lines as CRLF
+  const unedited = !!item.draft_reply && item.draft_reply.replace(/\r\n/g, "\n").trim() === text;
+  const reconnect = toDate(parsed.data.reconnect_at);
   const { error } = await db.from("scheduled_actions").insert({
     org_id: s.orgId, candidate_id: item.candidate_id, conversation_id: parsed.data.conversationId, campaign_id: null,
-    action_type: "SEND_REPLY", payload: { subject: parsed.data.subject, text: parsed.data.text, review_item_id: item.id },
+    action_type: "SEND_REPLY",
+    payload: {
+      subject: parsed.data.subject, text, review_item_id: item.id, approved_by: s.userId,
+      ai_generated: unedited && !!cls.draft_model, ai_model: unedited ? cls.draft_model ?? null : null, prompt_version: unedited ? cls.draft_prompt_version ?? null : null,
+      reconnect_at: reconnect?.toISOString() ?? null,
+    } as Json,
     scheduled_for: new Date().toISOString(), status: "PENDING", created_by_label: "review:approve",
   });
   if (error) return { error: error.message };
-  await db.from("review_items").update({ status: "APPROVED", resolved_by: s.userId, resolved_at: new Date().toISOString(), draft_reply: parsed.data.text }).eq("id", item.id);
+  await db.from("review_items").update({ status: "APPROVED", resolved_by: s.userId, resolved_at: new Date().toISOString() }).eq("id", item.id); // draft_reply keeps what the AI wrote; the sent text lives in messages
   await db.from("candidates").update({ communication_status: "CONVERSATION_ACTIVE" }).eq("id", item.candidate_id);
-  await audit(adminClient(), { orgId: s.orgId, candidateId: item.candidate_id, eventType: "REPLY_APPROVED", actor: "USER", actorUserId: s.userId, decision: "SEND_REPLY", metadata: { review_item_id: item.id } });
+  await audit(adminClient(), { orgId: s.orgId, candidateId: item.candidate_id, eventType: "REPLY_APPROVED", actor: "USER", actorUserId: s.userId, decision: "SEND_REPLY", reason: item.draft_reply ? (unedited ? "AI draft sent as written" : "AI draft edited") : "written by recruiter", metadata: { review_item_id: item.id, reconnect_at: parsed.data.reconnect_at || null } });
   revalidatePath("/review");
   return { ok: true };
 }
@@ -43,11 +57,18 @@ export async function skipItem(_p: ReviewState, fd: FormData): Promise<ReviewSta
   const s = await getSession();
   if (!canWrite(s.role)) return { error: "Not allowed" };
   const itemId = String(fd.get("itemId") ?? "");
+  const rc = reconnectField.safeParse(fd.get("reconnect_at") ?? "");
+  if (!rc.success) return { error: "Check-in date must be a valid date" };
   const { db, item } = await loadItem(itemId, s.orgId);
   if (!item) return { error: "Item already handled" };
   await db.from("review_items").update({ status: "SKIPPED", resolved_by: s.userId, resolved_at: new Date().toISOString() }).eq("id", item.id);
   await db.from("candidates").update({ communication_status: "CLOSED" }).eq("id", item.candidate_id).eq("communication_status", "HUMAN_REVIEW");
   await audit(adminClient(), { orgId: s.orgId, candidateId: item.candidate_id, eventType: "REVIEW_SKIPPED", actor: "USER", actorUserId: s.userId, metadata: { review_item_id: item.id } });
+  const at = toDate(rc.data);
+  if (at) {
+    const r = await scheduleReconnect(adminClient(), { orgId: s.orgId, candidateId: item.candidate_id, conversationId: item.conversation_id, at, statusAfter: "CLOSED", label: "review:skip", actorUserId: s.userId });
+    if (!r.ok) { revalidatePath("/review"); return { error: `Skipped, but the check-in was not scheduled: ${r.reason}` }; }
+  }
   revalidatePath("/review");
   return { ok: true };
 }

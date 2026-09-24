@@ -11,7 +11,8 @@ const serverSchema = z.object({
   RESEND_API_KEY: z.string().min(1),
   RESEND_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  APP_URL: z.string().url().default("http://localhost:3000"),
+  // Trailing slashes stripped so `${APP_URL}/path` never produces `//path`.
+  APP_URL: z.string().url().default("http://localhost:3000").transform((u) => u.replace(/\/+$/, "")),
   CRON_SECRET: z.string().min(16),
 });
 

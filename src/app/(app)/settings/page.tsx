@@ -5,6 +5,9 @@ import { SettingsForm } from "./settings-form";
 import { SendersPanel } from "./senders-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { daysSince } from "@/lib/format";
+import { monthSpend } from "@/lib/ai/client";
+import { MembersPanel } from "./members-panel";
+import { AccountPanel } from "./account-panel";
 
 export const metadata = { title: "Settings" };
 
@@ -17,6 +20,10 @@ export default async function SettingsPage() {
     supabase.from("suppressions").select("reason").eq("org_id", s.orgId),
   ]);
   if (!settings) throw new Error("Settings row missing for org");
+  const [aiSpent, { data: members }] = await Promise.all([
+    monthSpend(supabase, s.orgId),
+    supabase.rpc("list_org_members", { p_org: s.orgId }),
+  ]);
 
   const counts = (suppressionCounts ?? []).reduce<Record<string, number>>((acc, r) => {
     acc[r.reason] = (acc[r.reason] ?? 0) + 1;
@@ -28,7 +35,11 @@ export default async function SettingsPage() {
     <>
       <PageHeader title="Settings" subtitle="System ceilings · campaigns cannot exceed these" />
       <div className="p-8 space-y-5">
-        <SettingsForm settings={{ ...settings, models: (settings.models ?? {}) as Record<string, string> }} isAdmin={s.role === "admin"} />
+        <SettingsForm settings={{ ...settings, models: (settings.models ?? {}) as Record<string, string> }} isAdmin={s.role === "admin"} aiSpentUsd={aiSpent} />
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
+          <MembersPanel members={members ?? []} isAdmin={s.role === "admin"} currentUserId={s.userId} />
+          <AccountPanel />
+        </div>
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
           <SendersPanel senders={(senders ?? []).map((x) => ({ ...x, warmup_day: daysSince(x.warmup_started_at) + 1 }))} isAdmin={s.role === "admin"} />
           <Card>
@@ -40,7 +51,7 @@ export default async function SettingsPage() {
                   <div key={k} className="flex justify-between"><dt>{k.replace("_", " ").toLowerCase()}</dt><dd className="font-semibold text-foreground">{counts[k] ?? 0}</dd></div>
                 ))}
               </dl>
-              <p className="text-[11px] text-muted-foreground border-t pt-2">The AI has no write access to this list. Only people and bounce/complaint webhooks add to it.</p>
+              <p className="text-[11px] text-muted-foreground border-t pt-2">The AI never writes to this list. People, bounce/complaint webhooks and the opt-out policy add to it.</p>
             </CardContent>
           </Card>
         </div>

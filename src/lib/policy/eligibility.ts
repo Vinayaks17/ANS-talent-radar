@@ -99,3 +99,9 @@ export function validateNextContact(args: {
   }
   return { ok: true };
 }
+
+/** RFC 2606 / 6761 test names. Never mailed: they only bounce and hurt sender reputation. */
+export function isReservedDomain(email: string) {
+  const d = email.split("@")[1]?.toLowerCase() ?? "";
+  return /^example\.(com|net|org)$/.test(d) || /(^|\.)(example|test|invalid|localhost)$/.test(d);
+}

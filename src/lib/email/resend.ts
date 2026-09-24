@@ -18,6 +18,8 @@ export type OutboundEmail = {
   unsubscribeUrl: string;
   tags?: Record<string, string>;
   inReplyTo?: string | null;
+  /** Resend drops a repeat with the same key for 24h — makes a retried action safe. */
+  idempotencyKey?: string;
 };
 
 /** Plain-text send with the headers Gmail/Yahoo bulk-sender rules require. */
@@ -42,7 +44,7 @@ export async function sendEmail(m: OutboundEmail): Promise<{ id: string }> {
     text: m.text,
     headers,
     tags: Object.entries(m.tags ?? {}).map(([name, value]) => ({ name, value: value.replace(/[^a-zA-Z0-9_-]/g, "_") })),
-  });
+  }, m.idempotencyKey ? { idempotencyKey: m.idempotencyKey } : undefined);
   if (error || !data) throw new Error(`resend send failed: ${error?.message ?? "no id"}`);
   return { id: data.id };
 }

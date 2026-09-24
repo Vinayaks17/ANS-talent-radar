@@ -11,7 +11,14 @@ export const metadata = { title: "Review queue" };
 const CAT_CLS: Record<string, string> = {
   REPLY_RECEIVED: "bg-[#DBEAFE] text-[#1E3A8A]", DRAFT_APPROVAL: "bg-[#E8EAF0] text-[#3B4252]", LOW_CONFIDENCE: "bg-[#FCE8D2] text-[#7C3A00]",
 };
-const catLabel = (c: string) => ({ REPLY_RECEIVED: "Reply received", DRAFT_APPROVAL: "Draft reply", LOW_CONFIDENCE: "Low confidence", COMP_NEGOTIATION: "Comp negotiation", COMPLAINT: "Complaint", LEGAL_PRIVACY: "Legal / privacy" } as Record<string, string>)[c] ?? c.replace(/_/g, " ").toLowerCase();
+const catLabel = (c: string) => ({ REPLY_RECEIVED: "Reply received", DRAFT_APPROVAL: "Draft reply", LOW_CONFIDENCE: "Low confidence", COMP_NEGOTIATION: "Comp negotiation", COMPLAINT: "Complaint", LEGAL_PRIVACY: "Legal / privacy", UNCLEAR_IDENTITY: "Unclear identity", OFFER_DISCUSSION: "Offer in hand", EXISTING_PROCESS: "Existing process", SENSITIVE_INFO: "Sensitive info" } as Record<string, string>)[c] ?? c.replace(/_/g, " ").toLowerCase();
+
+type AiView = {
+  intent?: string; market_status?: string; confidence?: number; summary?: string; review_flags?: string[]; reconnect_at?: string | null;
+  availability?: { date: string; precision: string; quote: string } | null; route?: string; route_reason?: string; model?: string; prompt_version?: string;
+  facts?: { type: string; value: string; quote: string; confidence: number }[]; draft_subject?: string; draft_problems?: string[]; facts_dropped?: number;
+};
+const words = (s?: string | null) => (s ?? "").replace(/_/g, " ").toLowerCase();
 
 export default async function ReviewPage(props: { searchParams: Promise<{ item?: string }> }) {
   const { item } = await props.searchParams;
@@ -59,6 +66,7 @@ export default async function ReviewPage(props: { searchParams: Promise<{ item?:
           const name = c ? fullName(c) : "Unknown";
           const inbound = conv.filter((m) => m.direction === "INBOUND");
           const latest = inbound[inbound.length - 1];
+          const ai = selected.ai_classification as AiView | null;
           return (
             <div className="flex-1 p-8 flex gap-5 min-w-0 overflow-auto">
               <div className="flex-1 min-w-0 space-y-4">
@@ -86,17 +94,39 @@ export default async function ReviewPage(props: { searchParams: Promise<{ item?:
                 </div>
 
                 {canWrite(s.role) && (
-                  <ReviewActions itemId={selected.id} candidateId={selected.candidate_id} conversationId={selected.conversation_id} draft={selected.draft_reply ?? ""} subject={latest?.subject ? (latest.subject.startsWith("Re:") ? latest.subject : `Re: ${latest.subject}`) : "Re: your reply"} />
+                  <ReviewActions key={selected.id} itemId={selected.id} candidateId={selected.candidate_id} conversationId={selected.conversation_id} draft={selected.draft_reply ?? ""} aiDraft={!!ai?.draft_subject}
+                    reconnectAt={ai?.reconnect_at ?? ""}
+                    subject={ai?.draft_subject ?? (latest?.subject ? (/^re:/i.test(latest.subject) ? latest.subject : `Re: ${latest.subject}`) : "Re: your reply")} />
                 )}
               </div>
 
               <div className="w-[300px] shrink-0 space-y-3.5">
                 <div className="bg-white border rounded-lg p-4 space-y-2">
                   <h2 className="text-[13px] font-bold">What the AI understood</h2>
-                  {selected.ai_classification ? (
-                    <pre className="text-[11px] whitespace-pre-wrap text-muted-foreground">{JSON.stringify(selected.ai_classification, null, 1)}</pre>
+                  {ai ? (
+                    <div className="space-y-2.5 text-xs">
+                      {ai.summary && <p className="text-[13px] leading-relaxed">{ai.summary}</p>}
+                      <dl className="grid grid-cols-[92px_1fr] gap-x-2 gap-y-1">
+                        <dt className="text-muted-foreground">Intent</dt><dd className="font-semibold">{words(ai.intent)}</dd>
+                        <dt className="text-muted-foreground">Market</dt><dd>{words(ai.market_status)}</dd>
+                        {ai.availability && <><dt className="text-muted-foreground">Available</dt><dd>{ai.availability.date} <span className="text-muted-foreground">({words(ai.availability.precision)})</span></dd></>}
+                        <dt className="text-muted-foreground">Check back</dt><dd>{ai.reconnect_at ?? "—"}</dd>
+                        <dt className="text-muted-foreground">Confidence</dt><dd className={`font-semibold ${(ai.confidence ?? 0) < 0.75 ? "text-[#7C3A00]" : ""}`}>{ai.confidence?.toFixed(2) ?? "—"}</dd>
+                      </dl>
+                      {!!ai.review_flags?.length && <div className="flex gap-1 flex-wrap">{ai.review_flags.map((f) => <span key={f} className="px-1.5 py-0.5 rounded bg-[#FBE2E2] text-[#7F1D1D] text-[10px] font-bold">{words(f)}</span>)}</div>}
+                      {!!ai.facts?.length && (
+                        <div className="space-y-1.5 pt-1 border-t">
+                          <div className="text-muted-foreground font-semibold pt-1">Facts picked up</div>
+                          {ai.facts.map((f, i) => (
+                            <div key={i}><span className="font-semibold">{words(f.type)}:</span> {f.value} <span className="text-muted-foreground">· {f.confidence.toFixed(2)}</span><div className="text-muted-foreground italic">&ldquo;{f.quote}&rdquo;</div></div>
+                          ))}
+                        </div>
+                      )}
+                      {!!ai.draft_problems?.length && <p className="text-[#7C3A00]">Draft checks: {ai.draft_problems.join(", ")}</p>}
+                      <p className="text-[10px] text-muted-foreground pt-1 border-t">{[ai.route && `route: ${words(ai.route)}`, ai.route_reason, ai.prompt_version, ai.model].filter(Boolean).join(" · ")}</p>
+                    </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Classification is not enabled yet. Read the reply, set the market status on the candidate, and answer or skip.</p>
+                    <p className="text-xs text-muted-foreground">The AI did not read this one (disabled, over budget, or an error — see the reason above). Read the reply, set the market status, and answer or skip.</p>
                   )}
                 </div>
                 <div className="bg-white border rounded-lg p-4 space-y-2">
