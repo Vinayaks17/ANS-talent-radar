@@ -7,6 +7,7 @@ import { MarketBadge, commLabel } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, formatDateTime, formatAvailability, fullName, initials, money } from "@/lib/format";
 import { CandidateActions } from "./candidate-actions";
+import { readinessScore } from "@/lib/policy/readiness";
 
 export default async function CandidatePage(props: PageProps<"/candidates/[id]">) {
   const { id } = await props.params;
@@ -23,6 +24,11 @@ export default async function CandidatePage(props: PageProps<"/candidates/[id]">
     db.from("scheduled_actions").select("action_type, scheduled_for, status").eq("candidate_id", id).eq("status", "PENDING").order("scheduled_for").limit(1),
     db.from("campaign_enrollments").select("status, current_step, campaigns(id, name)").eq("candidate_id", id),
   ]);
+  const { data: flags } = await db.from("org_settings").select("matching_enabled").eq("org_id", s.orgId).single();
+  const ready = flags?.matching_enabled ? readinessScore(c) : null;
+  const { data: matched } = ready
+    ? await db.from("requirement_matches").select("match_score, status, requirements(id, title, status)").eq("candidate_id", id).neq("status", "REJECTED").order("match_score", { ascending: false }).limit(5)
+    : { data: null };
   const name = fullName(c);
   const next = actions?.[0];
   const enrollment = enrollments?.[0];
@@ -52,6 +58,27 @@ export default async function CandidatePage(props: PageProps<"/candidates/[id]">
             <Tile label="Next action" value={next ? `${next.action_type.replace(/_/g, " ").toLowerCase()} · ${formatDate(next.scheduled_for)}` : commLabel(c.communication_status)} accent />
           </div>
         </div>
+
+        {ready && (
+          <div className="bg-white border rounded-xl p-5 flex gap-6 items-center">
+            <div className="text-center w-[96px] shrink-0">
+              <div className={`font-heading text-4xl font-bold ${ready.score >= 75 ? "text-[#14532D]" : ready.score >= 50 ? "text-[#7C3A00]" : "text-muted-foreground"}`}>{ready.score}</div>
+              <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Ready · {ready.band.toLowerCase()}</div>
+            </div>
+            <div className="flex-1 text-[13px]">
+              <div className="font-semibold mb-1">Market readiness</div>
+              <div className="text-xs text-muted-foreground">{ready.reasons.join(" · ")}</div>
+            </div>
+            {matched && matched.length > 0 && (
+              <div className="w-[340px] text-[13px] space-y-1">
+                <div className="font-semibold">Matched to</div>
+                {matched.map((m, i) => { const r = m.requirements as unknown as { id: string; title: string; status: string } | null; return r ? (
+                  <Link key={i} href={`/requirements/${r.id}`} className="flex justify-between gap-2 text-xs hover:underline"><span className="truncate">{r.title}{m.status === "SHORTLISTED" && " · shortlisted"}</span><span className="font-bold">{m.match_score}</span></Link>
+                ) : null; })}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 xl:grid-cols-[520px_1fr] gap-5 items-start">
           <div className="space-y-5">

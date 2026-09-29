@@ -9,7 +9,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   const [{ count: reviewCount }, { data: settings }] = await Promise.all([
     supabase.from("review_items").select("id", { count: "exact", head: true }).eq("org_id", session.orgId).eq("status", "OPEN"),
-    supabase.from("org_settings").select("outreach_paused").eq("org_id", session.orgId).maybeSingle(),
+    supabase.from("org_settings").select("outreach_paused, matching_enabled").eq("org_id", session.orgId).maybeSingle(),
   ]);
 
   return (
@@ -22,6 +22,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         reviewCount={reviewCount ?? 0}
         outreachPaused={settings?.outreach_paused ?? false}
         canPause={canWrite(session.role)}
+        matchingEnabled={settings?.matching_enabled ?? false}
         signOut={signOut}
       />
       <div className="flex-1 min-w-0 flex flex-col">{children}</div>

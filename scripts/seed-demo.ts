@@ -114,7 +114,7 @@ async function main() {
   // 1. Fresh org (cascade removes everything from a previous run).
   await db.from("orgs").delete().eq("slug", "demo");
   const org = await must(db.from("orgs").insert({ name: "Northstar Staffing (demo)", slug: "demo", brand: { logo_text: "NS", primary: "#1F3A5F", accent: "#E8A33D" }, allowed_email_domains: [] }).select("id").single(), "org");
-  await must(db.from("org_settings").insert({ org_id: org.id, outreach_paused: true, approval_required: true, ai_enabled: true, ai_monthly_budget_usd: 5, max_outreach_per_day: 120 }).select("org_id"), "settings");
+  await must(db.from("org_settings").insert({ org_id: org.id, outreach_paused: true, approval_required: true, ai_enabled: true, ai_monthly_budget_usd: 5, max_outreach_per_day: 120, matching_enabled: true, mailing_address: "100 Example Plaza, Suite 400, Dallas, TX 75201, USA" }).select("org_id"), "settings");
 
   // 2. Demo login.
   const email = "demo@northstar-staffing.test", pw = password();
@@ -186,6 +186,21 @@ async function main() {
       if (ai.reconnect_at) await scheduleReconnect(db, { orgId: org.id, candidateId: cand.id, conversationId: conv.id, at: new Date(`${ai.reconnect_at}T14:00:00Z`), statusAfter: "NURTURE_SCHEDULED", label: "review:approve", actorUserId: userId });
     }
   }
+
+  // 6. V2 preview: readiness for everyone, two open requirements, matching run on the first.
+  const { refreshReadiness } = await import("../src/lib/matching/readiness");
+  const { runMatching } = await import("../src/lib/matching/match");
+  await refreshReadiness(db, { orgId: org.id });
+  const reqs = await must(db.from("requirements").insert([
+    { org_id: org.id, created_by: userId, title: "Logistics Operations Manager", client_name: "Midwest 3PL client (confidential)", location: "Dallas, TX", remote_policy: "hybrid", comp_min: 110000, comp_max: 135000,
+      must_have: ["3PL or freight operations leadership", "TMS or WMS experience", "Managing a team of 10+"], nice_to_have: ["Lean / continuous improvement", "Cross-border freight"],
+      description: "Run day-to-day operations for a growing 3PL site: carrier management, warehouse throughput, KPIs and a team of 15 supervisors and coordinators. Hybrid, 3 days on site in Dallas." },
+    { org_id: org.id, created_by: userId, title: "Senior Accountant (Remote)", client_name: "Healthcare group", location: "Remote, US", remote_policy: "remote", comp_min: 85000, comp_max: 100000,
+      must_have: ["Month-end close", "GAAP", "NetSuite or SAP"], nice_to_have: ["Healthcare billing"], description: "Own month-end close and reconciliations for a multi-entity healthcare group. Fully remote, US hours." },
+  ]).select("id, title"), "requirements");
+  const run = await runMatching(db, { orgId: org.id, requirementId: reqs[0].id, userId });
+  const run2 = await runMatching(db, { orgId: org.id, requirementId: reqs[1].id, userId });
+  results.push(`\nMatching: "${reqs[0].title}" ${run.scored} scored ($${run.costUsd.toFixed(3)}), "${reqs[1].title}" ${run2.scored} scored ($${run2.costUsd.toFixed(3)}) with ${run.model}`);
 
   const { data: open } = await db.from("review_items").select("category").eq("org_id", org.id).eq("status", "OPEN");
   const { data: spend } = await db.from("ai_usage").select("cost_usd").eq("org_id", org.id);

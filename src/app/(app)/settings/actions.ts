@@ -48,6 +48,7 @@ const settingsSchema = z.object({
   ai_monthly_budget_usd: z.coerce.number().min(0).max(100000),
   mailing_address: z.string().trim().max(300).transform((v) => v || null),
   email_footer_enabled: z.boolean(),
+  matching_enabled: z.boolean(),
 });
 
 export type SettingsState = { error?: string; saved?: boolean };
@@ -74,6 +75,7 @@ export async function saveSettings(_prev: SettingsState, formData: FormData): Pr
     ai_monthly_budget_usd: formData.get("ai_monthly_budget_usd"),
     mailing_address: String(formData.get("mailing_address") ?? ""),
     email_footer_enabled: formData.get("email_footer_enabled") === "on",
+    matching_enabled: formData.get("matching_enabled") === "on",
     human_review_categories: formData.getAll("human_review_categories").map(String),
     models: Object.fromEntries(
       ["outreach", "classify", "reply", "memory", "resume", "match"].map((k) => [k, String(formData.get(`model_${k}`) ?? "gpt-5.6-luna")]),

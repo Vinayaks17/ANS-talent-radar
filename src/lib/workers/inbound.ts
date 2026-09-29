@@ -10,6 +10,7 @@ import { assertAiAvailable, AiUnavailable } from "@/lib/ai/client";
 import { classifyReply, draftReply, loadThread } from "@/lib/ai/tasks";
 import { applyIntelligence } from "@/lib/ai/apply";
 import { scheduleReconnect } from "./reconnect";
+import { refreshReadiness } from "@/lib/matching/readiness";
 import type { Json } from "@/lib/database.types";
 
 type Event = Tables<"inbound_events">;
@@ -147,7 +148,14 @@ async function processReceived(db: Db, emailId: string): Promise<{ orgId: string
  * recommends; decideReply() decides. Any AI failure falls back to a human.
  * Exported for the integration test and for re-processing from the UI.
  */
-export async function handleReply(db: Db, a: {
+export async function handleReply(db: Db, a: Parameters<typeof handleReplyInner>[1]): Promise<{ orgId: string; note: string }> {
+  const out = await handleReplyInner(db, a);
+  // What the candidate said changes how ready they are; never let this fail the reply.
+  await refreshReadiness(db, { candidateIds: [a.candidate.id] }).catch((e) => console.error("readiness refresh failed", e));
+  return out;
+}
+
+async function handleReplyInner(db: Db, a: {
   orgId: string; candidate: Tables<"candidates">; conversation: Tables<"conversations">; messageId: string; replyText: string; subject: string;
 }): Promise<{ orgId: string; note: string }> {
   const { orgId, candidate, conversation, messageId, replyText } = a;

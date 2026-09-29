@@ -9,6 +9,7 @@ import { audit } from "@/lib/audit";
 import { suppress } from "@/lib/policy/suppression";
 import type { Database, Json } from "@/lib/database.types";
 import { scheduleReconnect } from "@/lib/workers/reconnect";
+import { refreshReadiness } from "@/lib/matching/readiness";
 
 const reconnectField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal(""));
 const toDate = (d: string | undefined) => (d ? new Date(`${d}T14:00:00Z`) : null);
@@ -102,6 +103,7 @@ export async function setMarketStatus(_p: ReviewState, fd: FormData): Promise<Re
   const { error } = await db.from("candidates").update(patch).eq("id", parsed.data.candidateId).eq("org_id", s.orgId);
   if (error) return { error: error.message };
   await db.from("candidate_facts").insert({ org_id: s.orgId, candidate_id: parsed.data.candidateId, fact_type: "MARKET_STATUS", value_json: { status: parsed.data.market_status, availability: parsed.data.availability || null }, source: "USER", confidence: 1, created_by: s.userId });
+  await refreshReadiness(db, { candidateIds: [parsed.data.candidateId] }).catch(() => undefined);
   await audit(adminClient(), { orgId: s.orgId, candidateId: parsed.data.candidateId, eventType: "MARKET_STATUS_SET", actor: "USER", actorUserId: s.userId, decision: parsed.data.market_status });
   revalidatePath("/review");
   revalidatePath(`/candidates/${parsed.data.candidateId}`);

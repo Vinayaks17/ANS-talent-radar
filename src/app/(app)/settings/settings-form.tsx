@@ -41,7 +41,7 @@ type Settings = {
   auto_threshold: number; review_threshold: number; approval_required: boolean;
   human_review_categories: string[]; models: Record<string, string>;
   ai_enabled: boolean; ai_monthly_budget_usd: number;
-  mailing_address: string | null; email_footer_enabled: boolean;
+  mailing_address: string | null; email_footer_enabled: boolean; matching_enabled: boolean;
 };
 
 export function SettingsForm({ settings, isAdmin, aiSpentUsd }: { settings: Settings; isAdmin: boolean; aiSpentUsd: number }) {
@@ -95,6 +95,10 @@ export function SettingsForm({ settings, isAdmin, aiSpentUsd }: { settings: Sett
               <Field label="Monthly AI budget (USD)" name="ai_monthly_budget_usd" value={settings.ai_monthly_budget_usd} step="1" ro={ro} />
             </div>
             <p className="text-xs text-muted-foreground -mt-2">Spent this month: <strong className="text-foreground">${aiSpentUsd.toFixed(2)}</strong> of ${Number(settings.ai_monthly_budget_usd).toFixed(0)}. At the limit the AI stops and work falls back to people and templates.</p>
+            <label className="flex items-start gap-3 text-sm">
+              <input type="checkbox" name="matching_enabled" defaultChecked={settings.matching_enabled} disabled={ro} className="mt-0.5" />
+              <span><span className="block font-bold">Requirement matching (V2 preview)</span><span className="block text-xs text-muted-foreground">Shows readiness scores and the Requirements page. Matching uses the &ldquo;Requirement matching&rdquo; model below.</span></span>
+            </label>
             <label className="flex items-start gap-3 p-3 rounded-lg bg-[#FCE8D2] text-[#7C3A00]">
               <input type="checkbox" name="approval_required" defaultChecked={settings.approval_required} disabled={ro} className="mt-0.5" />
               <span>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, Users, Send, Inbox, Settings, LogOut } from "lucide-react";
+import { LayoutGrid, Users, Send, Inbox, Settings, LogOut, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PauseAllButton } from "@/components/pause-all-button";
 
@@ -11,6 +11,7 @@ const NAV = [
   { href: "/candidates", label: "Candidates", icon: Users },
   { href: "/campaigns", label: "Campaigns", icon: Send },
   { href: "/review", label: "Review queue", icon: Inbox },
+  { href: "/requirements", label: "Requirements", icon: Target, v2: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -22,6 +23,7 @@ export function AppSidebar(props: {
   reviewCount: number;
   outreachPaused: boolean;
   canPause: boolean;
+  matchingEnabled: boolean;
   signOut: () => Promise<void>;
 }) {
   const pathname = usePathname();
@@ -37,7 +39,7 @@ export function AppSidebar(props: {
         </div>
       </div>
 
-      {NAV.map(({ href, label, icon: Icon }) => {
+      {NAV.filter((n) => !("v2" in n) || props.matchingEnabled).map(({ href, label, icon: Icon }) => {
         const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
         return (
           <Link

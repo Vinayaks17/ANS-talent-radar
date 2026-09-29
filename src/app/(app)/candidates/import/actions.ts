@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { refreshReadiness } from "@/lib/matching/readiness";
 import { getSession, canWrite } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { adminClient } from "@/lib/supabase/admin";
@@ -74,6 +75,7 @@ export async function commitCsv(_prev: CommitState, formData: FormData): Promise
     metadata: { filename, suppressed: result.suppressed, duplicateInFile: result.duplicateInFile, invalid: result.invalid },
   });
   await admin.storage.from("imports").remove([key]);
+  await refreshReadiness(admin, { orgId: s.orgId }).catch(() => undefined); // new rows get a score straight away
   revalidatePath("/candidates");
   return { result };
 }

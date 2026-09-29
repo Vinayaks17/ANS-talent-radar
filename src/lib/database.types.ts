@@ -416,7 +416,10 @@ export type Database = {
           phone_normalized: string | null
           preferred_locations: string[]
           preferred_roles: string[]
+          readiness_score: number | null
+          readiness_updated_at: string | null
           remote_preference: string | null
+          search_tsv: unknown
           skills: string[]
           source: string | null
           source_reference: string | null
@@ -454,7 +457,10 @@ export type Database = {
           phone_normalized?: string | null
           preferred_locations?: string[]
           preferred_roles?: string[]
+          readiness_score?: number | null
+          readiness_updated_at?: string | null
           remote_preference?: string | null
+          search_tsv?: unknown
           skills?: string[]
           source?: string | null
           source_reference?: string | null
@@ -492,7 +498,10 @@ export type Database = {
           phone_normalized?: string | null
           preferred_locations?: string[]
           preferred_roles?: string[]
+          readiness_score?: number | null
+          readiness_updated_at?: string | null
           remote_preference?: string | null
+          search_tsv?: unknown
           skills?: string[]
           source?: string | null
           source_reference?: string | null
@@ -844,6 +853,7 @@ export type Database = {
           email_footer_enabled: boolean
           human_review_categories: string[]
           mailing_address: string | null
+          matching_enabled: boolean
           max_followups_per_sender_per_day: number
           max_new_per_sender_per_day: number
           max_outreach_per_day: number
@@ -870,6 +880,7 @@ export type Database = {
           email_footer_enabled?: boolean
           human_review_categories?: string[]
           mailing_address?: string | null
+          matching_enabled?: boolean
           max_followups_per_sender_per_day?: number
           max_new_per_sender_per_day?: number
           max_outreach_per_day?: number
@@ -896,6 +907,7 @@ export type Database = {
           email_footer_enabled?: boolean
           human_review_categories?: string[]
           mailing_address?: string | null
+          matching_enabled?: boolean
           max_followups_per_sender_per_day?: number
           max_new_per_sender_per_day?: number
           max_outreach_per_day?: number
@@ -983,6 +995,153 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "prompt_templates_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      requirement_matches: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          decided_by: string | null
+          gaps: string[]
+          id: string
+          match_score: number
+          model: string | null
+          org_id: string
+          prompt_version: string | null
+          readiness: number
+          requirement_id: string
+          role_fit: number
+          status: Database["public"]["Enums"]["match_status"]
+          strengths: string[]
+          summary: string | null
+          updated_at: string
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          decided_by?: string | null
+          gaps?: string[]
+          id?: string
+          match_score: number
+          model?: string | null
+          org_id: string
+          prompt_version?: string | null
+          readiness: number
+          requirement_id: string
+          role_fit: number
+          status?: Database["public"]["Enums"]["match_status"]
+          strengths?: string[]
+          summary?: string | null
+          updated_at?: string
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          decided_by?: string | null
+          gaps?: string[]
+          id?: string
+          match_score?: number
+          model?: string | null
+          org_id?: string
+          prompt_version?: string | null
+          readiness?: number
+          requirement_id?: string
+          role_fit?: number
+          status?: Database["public"]["Enums"]["match_status"]
+          strengths?: string[]
+          summary?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "requirement_matches_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "requirement_matches_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "requirement_matches_requirement_id_fkey"
+            columns: ["requirement_id"]
+            isOneToOne: false
+            referencedRelation: "requirements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      requirements: {
+        Row: {
+          client_name: string | null
+          comp_max: number | null
+          comp_min: number | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          description: string | null
+          id: string
+          last_matched_at: string | null
+          location: string | null
+          must_have: string[]
+          nice_to_have: string[]
+          org_id: string
+          remote_policy: string | null
+          status: Database["public"]["Enums"]["requirement_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          client_name?: string | null
+          comp_max?: number | null
+          comp_min?: number | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string | null
+          id?: string
+          last_matched_at?: string | null
+          location?: string | null
+          must_have?: string[]
+          nice_to_have?: string[]
+          org_id: string
+          remote_policy?: string | null
+          status?: Database["public"]["Enums"]["requirement_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          client_name?: string | null
+          comp_max?: number | null
+          comp_min?: number | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string | null
+          id?: string
+          last_matched_at?: string | null
+          location?: string | null
+          must_have?: string[]
+          nice_to_have?: string[]
+          org_id?: string
+          remote_policy?: string | null
+          status?: Database["public"]["Enums"]["requirement_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "requirements_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "orgs"
@@ -1327,12 +1486,23 @@ export type Database = {
           user_id: string
         }[]
       }
+      match_candidates_prefilter: {
+        Args: { p_limit?: number; p_org: string; p_terms: string[] }
+        Returns: {
+          id: string
+          rank: number
+        }[]
+      }
       resolve_member_emails: {
         Args: { p_emails: string[]; p_org: string }
         Returns: {
           email: string
           user_id: string
         }[]
+      }
+      set_readiness: {
+        Args: { p_ids: string[]; p_scores: number[] }
+        Returns: number
       }
     }
     Enums: {
@@ -1388,6 +1558,7 @@ export type Database = {
         | "PASSIVE"
         | "NOT_LOOKING"
         | "NOT_INTERESTED"
+      match_status: "SUGGESTED" | "SHORTLISTED" | "REJECTED"
       member_role: "admin" | "recruiter" | "viewer"
       message_direction: "INBOUND" | "OUTBOUND"
       message_kind:
@@ -1398,6 +1569,7 @@ export type Database = {
         | "RECONNECT"
         | "REPLY"
         | "MANUAL"
+      requirement_status: "OPEN" | "ON_HOLD" | "CLOSED"
       review_status:
         | "OPEN"
         | "APPROVED"
@@ -1597,6 +1769,7 @@ export const Constants = {
         "NOT_LOOKING",
         "NOT_INTERESTED",
       ],
+      match_status: ["SUGGESTED", "SHORTLISTED", "REJECTED"],
       member_role: ["admin", "recruiter", "viewer"],
       message_direction: ["INBOUND", "OUTBOUND"],
       message_kind: [
@@ -1608,6 +1781,7 @@ export const Constants = {
         "REPLY",
         "MANUAL",
       ],
+      requirement_status: ["OPEN", "ON_HOLD", "CLOSED"],
       review_status: [
         "OPEN",
         "APPROVED",

@@ -82,6 +82,28 @@ with email sending stubbed:
   during integration runs:
   `select cron.alter_job((select jobid from cron.job where jobname='talent-radar-dispatch'), active := false);`
 
+## V2 preview (behind `org_settings.matching_enabled`, off for ANS, on for demo)
+
+- **Market Readiness Score** (0–100, `src/lib/policy/readiness.ts`, pure +
+  tested): market status, how close their availability date is, how recently
+  they confirmed it, recent replies / live conversation. Stored in
+  `candidates.readiness_score`; refreshed after every reply, manual status
+  change and import, and for all orgs in the 03:00 UTC cron run
+  (`npm run db:readiness` to force). Shown on profiles and as a sortable
+  column when matching is on.
+- **Requirement matching** (`/requirements`, `src/lib/matching/match.ts`):
+  recruiter enters a role (title, client, location, work mode, pay range,
+  must-haves, nice-to-haves, JD). "Find matches": Postgres full-text prefilter
+  on title/skills/roles (`match_candidates_prefilter`, trigger-maintained
+  `search_tsv`) blended with readiness → top 40 → AI role fit in batches of 10
+  (`role_fit_scorer` prompt, model = `models.match`, Terra by default; work
+  facts only, no names/contact details) → Match = Fit × (0.5 + Ready/200).
+  Shortlist / reject / undo per candidate; decisions survive re-runs. Cost
+  measured ≈ $0.03 per requirement run on Terra.
+- Turn on per org in Settings → "Requirement matching (V2 preview)".
+- Not built yet: client login (V2 part 2), resume parsing to enrich profiles
+  (matching quality depends on skills/memory being filled in).
+
 ## Demo tenant (for client walkthroughs)
 
 `npm run demo:seed` rebuilds "Northstar Staffing (demo)" (slug `demo`): 30
@@ -96,7 +118,7 @@ the password lives in `~/.config/talent-radar/demo_password` (or set
 
 - Supabase dev project `talent-radar-dev` ref `hhdtretmidmdfmkopdyj` (us-east-1).
   Migrations: `npm run db:migrate` (needs `SUPABASE_ACCESS_TOKEN`, runs over
-  HTTPS via the Management API). Applied: 0001–0008. Types: `npm run db:types`
+  HTTPS via the Management API). Applied: 0001–0010. Types: `npm run db:types`
   (Management API, no CLI needed).
 - Test login: `claude-test@ansrpo.com` (password in the session that created it;
   create another admin from the sign-up tab with an @ansrpo.com address).

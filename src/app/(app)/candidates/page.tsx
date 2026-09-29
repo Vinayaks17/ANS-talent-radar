@@ -13,17 +13,20 @@ const PAGE_SIZE = 25;
 const MARKET_OPTIONS = ["AVAILABLE_NOW", "OPEN_TO_RIGHT_OPPORTUNITY", "OPEN_LATER", "PASSIVE", "NOT_LOOKING", "NOT_INTERESTED", "UNKNOWN"] as const;
 type Market = (typeof MARKET_OPTIONS)[number];
 
-export default async function CandidatesPage(props: { searchParams: Promise<{ q?: string; market?: string; campaign?: string; page?: string }> }) {
+export default async function CandidatesPage(props: { searchParams: Promise<{ q?: string; market?: string; campaign?: string; page?: string; sort?: string }> }) {
   const sp = await props.searchParams;
   const s = await getSession();
   const db = await createClient();
   const page = Math.max(1, Number(sp.page ?? 1));
+  const { data: flags } = await db.from("org_settings").select("matching_enabled").eq("org_id", s.orgId).single();
+  const showReady = !!flags?.matching_enabled;
+  const byReady = showReady && sp.sort === "ready";
 
   let query = db
     .from("candidates")
-    .select("id, first_name, last_name, current_title, current_company, location, market_status, communication_status, availability_date, availability_precision, last_verified_at, next_contact_at, owner_user_id", { count: "exact" })
+    .select("id, first_name, last_name, current_title, current_company, location, market_status, communication_status, availability_date, availability_precision, last_verified_at, next_contact_at, owner_user_id, readiness_score", { count: "exact" })
     .eq("org_id", s.orgId)
-    .order("updated_at", { ascending: false })
+    .order(byReady ? "readiness_score" : "updated_at", { ascending: false, nullsFirst: false })
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
   if (sp.q) {
@@ -68,14 +71,22 @@ export default async function CandidatesPage(props: { searchParams: Promise<{ q?
               </select>
             </>
           )}
+          {showReady && (
+            <>
+              <label htmlFor="sort" className="text-xs text-muted-foreground">Sort</label>
+              <select id="sort" name="sort" defaultValue={sp.sort ?? ""} className="border rounded-md px-2.5 py-2 bg-white text-sm">
+                <option value="">Recently updated</option><option value="ready">Most ready to move</option>
+              </select>
+            </>
+          )}
           <Button type="submit" variant="outline">Filter</Button>
           <div className="flex-1" />
           <div className="text-xs text-muted-foreground">Showing {(rows?.length ?? 0) === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{(page - 1) * PAGE_SIZE + (rows?.length ?? 0)} of {(count ?? 0).toLocaleString()}</div>
         </form>
 
         <div className="bg-white border rounded-xl overflow-hidden">
-          <div className="grid grid-cols-[minmax(240px,1.6fr)_130px_150px_140px_120px_170px] gap-3 px-5 py-3 bg-[#F7F5EF] border-b text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            <div>Candidate</div><div>Market status</div><div>Conversation</div><div>Expected timing</div><div>Last verified</div><div>Next action</div>
+          <div className={`grid ${showReady ? "grid-cols-[minmax(240px,1.6fr)_64px_130px_150px_140px_120px_170px]" : "grid-cols-[minmax(240px,1.6fr)_130px_150px_140px_120px_170px]"} gap-3 px-5 py-3 bg-[#F7F5EF] border-b text-[11px] font-bold uppercase tracking-wider text-muted-foreground`}>
+            <div>Candidate</div>{showReady && <div title="Market readiness, 0–100">Ready</div>}<div>Market status</div><div>Conversation</div><div>Expected timing</div><div>Last verified</div><div>Next action</div>
           </div>
           {(rows ?? []).length === 0 && (
             <div className="px-5 py-10 text-sm text-muted-foreground text-center">
@@ -83,11 +94,12 @@ export default async function CandidatesPage(props: { searchParams: Promise<{ q?
             </div>
           )}
           {(rows ?? []).map((r) => (
-            <Link key={r.id} href={`/candidates/${r.id}`} className="grid grid-cols-[minmax(240px,1.6fr)_130px_150px_140px_120px_170px] gap-3 items-center px-5 py-3 border-b last:border-0 text-[13px] hover:bg-[#FFF8F2]">
+            <Link key={r.id} href={`/candidates/${r.id}`} className={`grid ${showReady ? "grid-cols-[minmax(240px,1.6fr)_64px_130px_150px_140px_120px_170px]" : "grid-cols-[minmax(240px,1.6fr)_130px_150px_140px_120px_170px]"} gap-3 items-center px-5 py-3 border-b last:border-0 text-[13px] hover:bg-[#FFF8F2]`}>
               <div className="min-w-0">
                 <div className="font-semibold truncate">{[r.first_name, r.last_name].filter(Boolean).join(" ") || "—"}</div>
                 <div className="text-xs text-muted-foreground truncate">{[r.current_title, r.current_company, r.location].filter(Boolean).join(" · ")}</div>
               </div>
+              {showReady && <div><ReadyPill score={r.readiness_score} /></div>}
               <div><MarketBadge status={r.market_status} /></div>
               <div className="text-xs text-muted-foreground">{commLabel(r.communication_status)}</div>
               <div>{formatAvailability(r.availability_date, r.availability_precision)}</div>
@@ -135,4 +147,10 @@ function actionLabel(t: string) {
     SEND_INITIAL: "Initial email", SEND_FOLLOW_UP: "Follow-up", SEND_FINAL: "Final email", SEND_NURTURE: "Nurture",
     SEND_REPLY: "AI reply", RECONNECT: "Reconnect", REFRESH_PROFILE: "Refresh", HUMAN_REVIEW: "Human review",
   } as Record<string, string>)[t] ?? t;
+}
+
+function ReadyPill({ score }: { score: number | null }) {
+  if (score == null) return <span className="text-xs text-muted-foreground">—</span>;
+  const cls = score >= 75 ? "bg-[#DCEFE3] text-[#14532D]" : score >= 50 ? "bg-[#FCE8D2] text-[#7C3A00]" : "bg-[#EEE] text-[#4B5563]";
+  return <span className={`inline-block min-w-[34px] text-center px-1.5 py-0.5 rounded-md text-xs font-bold ${cls}`}>{score}</span>;
 }
