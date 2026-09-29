@@ -105,3 +105,37 @@ export function isReservedDomain(email: string) {
   const d = email.split("@")[1]?.toLowerCase() ?? "";
   return /^example\.(com|net|org)$/.test(d) || /(^|\.)(example|test|invalid|localhost)$/.test(d);
 }
+
+/**
+ * Warm-up ramp for a new sending identity. A WARMING sender's daily caps grow
+ * with its age so mailbox providers see a gradual start; configured caps
+ * remain the ceiling. Day 1 is the day warm-up started.
+ */
+export const WARMUP_STEPS: { untilDay: number; newPerDay: number }[] = [
+  { untilDay: 3, newPerDay: 10 },
+  { untilDay: 7, newPerDay: 20 },
+  { untilDay: 14, newPerDay: 30 },
+  { untilDay: 21, newPerDay: 40 },
+];
+
+export function warmupDay(warmupStartedAt: string, now: Date) {
+  return Math.max(1, Math.floor((now.getTime() - new Date(warmupStartedAt).getTime()) / 86400000) + 1);
+}
+
+export function effectiveSenderCaps(
+  s: { status: string; daily_cap_new: number; daily_cap_followup: number; warmup_started_at: string },
+  now: Date,
+): { newCap: number; followupCap: number; day: number | null } {
+  if (s.status !== "WARMING") return { newCap: s.daily_cap_new, followupCap: s.daily_cap_followup, day: null };
+  const day = warmupDay(s.warmup_started_at, now);
+  const step = WARMUP_STEPS.find((w) => day <= w.untilDay);
+  if (!step) return { newCap: s.daily_cap_new, followupCap: s.daily_cap_followup, day };
+  return { newCap: Math.min(s.daily_cap_new, step.newPerDay), followupCap: Math.min(s.daily_cap_followup, Math.ceil(step.newPerDay / 2)), day };
+}
+
+/** Plain-text footer for sequence and reconnect emails. Replies in a live conversation carry only the header. */
+export function emailFooter(a: { orgName: string; mailingAddress: string | null; unsubscribeUrl: string }) {
+  const lines = ["--", `Not interested? Reply "stop" or unsubscribe here: ${a.unsubscribeUrl}`];
+  lines.push([a.orgName, a.mailingAddress?.trim()].filter(Boolean).join(" · "));
+  return lines.join("\n");
+}

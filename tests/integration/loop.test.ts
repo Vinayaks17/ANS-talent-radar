@@ -71,8 +71,9 @@ describe.skipIf(!run)("outreach loop (dry run)", () => {
     const s = await runDispatcher(db, { limit: 50, workerId: tag });
     const mine = s.details.filter((d) => ids.candidates.some((c) => d.includes(c.slice(0, 8))));
     expect(mine.filter((d) => d.includes("→ sent"))).toHaveLength(2);
-    const { data: msgs } = await db.from("messages").select("direction, message_type, to_address").in("candidate_id", ids.candidates);
+    const { data: msgs } = await db.from("messages").select("direction, message_type, to_address, text_body").in("candidate_id", ids.candidates);
     expect(msgs!.filter((m) => m.message_type === "INITIAL")).toHaveLength(2);
+    expect(msgs!.every((m) => m.text_body?.includes("unsubscribe here: http://localhost:3000/api/unsubscribe/"))).toBe(true);
     const { data: next } = await db.from("scheduled_actions").select("action_type, payload").in("candidate_id", ids.candidates).eq("status", "PENDING");
     expect(next!.map((n) => n.action_type)).toEqual(["SEND_FOLLOW_UP", "SEND_FOLLOW_UP"]);
     const { data: c } = await db.from("candidates").select("communication_status").eq("id", ids.candidates[0]).single();

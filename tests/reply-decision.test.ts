@@ -90,3 +90,24 @@ describe("isReservedDomain", () => {
     for (const e of ["a@gmail.com", "b@examples.com", "c@ansrpo.com", "d@testing.io"]) expect(isReservedDomain(e)).toBe(false);
   });
 });
+
+describe("sender warm-up and footer", async () => {
+  const { effectiveSenderCaps, emailFooter } = await import("@/lib/policy/eligibility");
+  const start = "2026-09-01T10:00:00Z";
+  const sender = { status: "WARMING", daily_cap_new: 40, daily_cap_followup: 20, warmup_started_at: start };
+  const at = (d: number) => new Date(new Date(start).getTime() + (d - 1) * 86400000 + 3600000);
+  it("ramps a warming sender and never exceeds its configured cap", () => {
+    expect(effectiveSenderCaps(sender, at(1))).toEqual({ newCap: 10, followupCap: 5, day: 1 });
+    expect(effectiveSenderCaps(sender, at(5)).newCap).toBe(20);
+    expect(effectiveSenderCaps(sender, at(10)).newCap).toBe(30);
+    expect(effectiveSenderCaps(sender, at(30))).toEqual({ newCap: 40, followupCap: 20, day: 30 });
+    expect(effectiveSenderCaps({ ...sender, daily_cap_new: 15 }, at(10)).newCap).toBe(15);
+    expect(effectiveSenderCaps({ ...sender, status: "WARMED" }, at(1))).toEqual({ newCap: 40, followupCap: 20, day: null });
+  });
+  it("builds a footer with the opt-out link and address", () => {
+    const f = emailFooter({ orgName: "ANS RPO", mailingAddress: "1 Main St, Dallas, TX", unsubscribeUrl: "https://x.test/u/abc" });
+    expect(f).toContain("https://x.test/u/abc");
+    expect(f).toContain("ANS RPO · 1 Main St, Dallas, TX");
+    expect(emailFooter({ orgName: "ANS RPO", mailingAddress: null, unsubscribeUrl: "u" }).endsWith("ANS RPO")).toBe(true);
+  });
+});

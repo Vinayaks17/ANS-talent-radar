@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { Db, Tables } from "@/lib/db";
 import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
-import { checkEligibility, checkLimits, isReservedDomain } from "@/lib/policy/eligibility";
+import { checkEligibility, checkLimits, isReservedDomain, effectiveSenderCaps, emailFooter } from "@/lib/policy/eligibility";
 import { nextSendSlot, isValidTimeZone, partsIn } from "@/lib/policy/send-window";
 import { isSuppressed, suppress } from "@/lib/policy/suppression";
 import { merge } from "@/lib/campaigns/templates";
@@ -143,15 +143,20 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
   const orgSentToday = todays?.length ?? 0;
   const isNew = a.action_type === "SEND_INITIAL";
 
-  // Prefer the sender used earlier in this conversation; otherwise the least-loaded one.
+  // Prefer the sender used earlier in this conversation; otherwise the one with the most
+  // headroom under its (warm-up adjusted) cap.
   let conversation = a.conversation_id
     ? (await db.from("conversations").select("*").eq("id", a.conversation_id).maybeSingle()).data
     : (await db.from("conversations").select("*").eq("candidate_id", cand.id).eq("status", "OPEN").order("created_at", { ascending: false }).limit(1).maybeSingle()).data;
 
   const load = (sid: string) => (todays ?? []).filter((m) => m.sender_id === sid && (isNew ? m.message_type === "INITIAL" : m.message_type !== "INITIAL")).length;
+  const capOf = (s: (typeof senders)[number]) => {
+    const c = effectiveSenderCaps(s, now);
+    return isNew ? Math.min(c.newCap, settings.max_new_per_sender_per_day) : Math.min(c.followupCap, settings.max_followups_per_sender_per_day);
+  };
   const preferred = conversation?.sender_id ? senders.find((s) => s.id === conversation!.sender_id) : undefined;
-  const sender = preferred ?? [...senders].sort((x, y) => load(x.id) - load(y.id))[0];
-  const senderCap = isNew ? Math.min(sender.daily_cap_new, settings.max_new_per_sender_per_day) : Math.min(sender.daily_cap_followup, settings.max_followups_per_sender_per_day);
+  const sender = preferred ?? [...senders].sort((x, y) => (capOf(y) - load(y.id)) - (capOf(x) - load(x.id)))[0];
+  const senderCap = capOf(sender);
   const campaignSenderSent = (todays ?? []).filter((m) => m.sender_id === sender.id && m.campaign_id === a.campaign_id && m.message_type === "INITIAL").length;
 
   const limits = checkLimits({
@@ -229,6 +234,10 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
   const [local, domain] = sender.email.split("@");
   const replyTo = `${local}+t_${conversation.thread_token}@${domain}`;
   const unsubscribeUrl = `${env().APP_URL}/api/unsubscribe/${conversation.thread_token}`;
+  // Visible opt-out on outreach; a reply in a live conversation keeps just the List-Unsubscribe header.
+  if (a.action_type !== "SEND_REPLY" && settings.email_footer_enabled) {
+    text = `${text.trimEnd()}\n\n${emailFooter({ orgName: org.name, mailingAddress: settings.mailing_address, unsubscribeUrl })}`;
+  }
   const lastOut = (await db.from("messages").select("internet_message_id").eq("conversation_id", conversation.id).eq("direction", "OUTBOUND").order("created_at", { ascending: false }).limit(1).maybeSingle()).data;
 
   // 6. Send
@@ -258,6 +267,11 @@ async function processAction(db: Db, a: Action): Promise<Outcome> {
     ai_generated: !!aiMeta, ai_model: aiMeta?.model ?? null, prompt_version: aiMeta?.promptVersion ?? null, approved_by: payload.approved_by ?? null,
   }));
   await tryStep("conversation", () => db.from("conversations").update({ last_message_at: now.toISOString() }).eq("id", conversation.id));
+  // Warm-up counts from a sender's first real email, not from when it was added.
+  if (sender.status === "WARMING") {
+    const { count } = await db.from("messages").select("id", { count: "exact", head: true }).eq("sender_id", sender.id).eq("direction", "OUTBOUND");
+    if ((count ?? 0) <= 1) await tryStep("warmup-start", () => db.from("senders").update({ warmup_started_at: now.toISOString() }).eq("id", sender.id));
+  }
 
   // 8. State + next step
   let nextAt: Date | null = null;

@@ -41,6 +41,7 @@ type Settings = {
   auto_threshold: number; review_threshold: number; approval_required: boolean;
   human_review_categories: string[]; models: Record<string, string>;
   ai_enabled: boolean; ai_monthly_budget_usd: number;
+  mailing_address: string | null; email_footer_enabled: boolean;
 };
 
 export function SettingsForm({ settings, isAdmin, aiSpentUsd }: { settings: Settings; isAdmin: boolean; aiSpentUsd: number }) {
@@ -72,6 +73,14 @@ export function SettingsForm({ settings, isAdmin, aiSpentUsd }: { settings: Sett
             <div className="space-y-1.5"><Label htmlFor="sws">Window start</Label><Input id="sws" name="send_window_start" type="time" defaultValue={settings.send_window_start.slice(0, 5)} readOnly={ro} /></div>
             <div className="space-y-1.5"><Label htmlFor="swe">Window end</Label><Input id="swe" name="send_window_end" type="time" defaultValue={settings.send_window_end.slice(0, 5)} readOnly={ro} /></div>
             <div className="col-span-2 space-y-1.5"><Label htmlFor="tz">Fallback time zone (unknown location)</Label><Input id="tz" name="default_timezone" defaultValue={settings.default_timezone} readOnly={ro} /></div>
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="addr">Postal address shown under every outreach email</Label>
+              <Input id="addr" name="mailing_address" defaultValue={settings.mailing_address ?? ""} placeholder="Street, City, State ZIP, Country" readOnly={ro} />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" name="email_footer_enabled" defaultChecked={settings.email_footer_enabled} disabled={ro} />
+                Add the opt-out line and address to outreach emails (required for US bulk email rules; replies in a conversation don&apos;t get it)
+              </label>
+            </div>
           </CardContent>
         </Card>
 

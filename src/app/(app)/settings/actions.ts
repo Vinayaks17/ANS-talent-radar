@@ -46,6 +46,8 @@ const settingsSchema = z.object({
   models: z.record(z.string(), z.string()),
   ai_enabled: z.boolean(),
   ai_monthly_budget_usd: z.coerce.number().min(0).max(100000),
+  mailing_address: z.string().trim().max(300).transform((v) => v || null),
+  email_footer_enabled: z.boolean(),
 });
 
 export type SettingsState = { error?: string; saved?: boolean };
@@ -70,6 +72,8 @@ export async function saveSettings(_prev: SettingsState, formData: FormData): Pr
     approval_required: formData.get("approval_required") === "on",
     ai_enabled: formData.get("ai_enabled") === "on",
     ai_monthly_budget_usd: formData.get("ai_monthly_budget_usd"),
+    mailing_address: String(formData.get("mailing_address") ?? ""),
+    email_footer_enabled: formData.get("email_footer_enabled") === "on",
     human_review_categories: formData.getAll("human_review_categories").map(String),
     models: Object.fromEntries(
       ["outreach", "classify", "reply", "memory", "resume", "match"].map((k) => [k, String(formData.get(`model_${k}`) ?? "gpt-5.6-luna")]),
@@ -110,7 +114,9 @@ export async function setSenderStatus(senderId: string, status: "WARMING" | "WAR
   const s = await getSession();
   if (s.role !== "admin") return { error: "Only admins can change senders" };
   const supabase = await createClient();
-  const { error } = await supabase.from("senders").update({ status }).eq("id", senderId).eq("org_id", s.orgId);
+  // Moving a sender (back) into warm-up restarts its ramp from day 1.
+  const patch = status === "WARMING" ? { status, warmup_started_at: new Date().toISOString() } : { status };
+  const { error } = await supabase.from("senders").update(patch).eq("id", senderId).eq("org_id", s.orgId);
   revalidatePath("/settings");
   return { error: error?.message };
 }

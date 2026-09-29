@@ -64,6 +64,13 @@ with email sending stubbed:
   real reply → cancel sequence, `HUMAN_REVIEW`, review item.
 - **Unsubscribe**: `List-Unsubscribe` + one-click POST at
   `/api/unsubscribe/[token]`; human page at `/u/[token]`.
+- **Email footer**: every sequence/reconnect email gets an opt-out line with the
+  unsubscribe link and the org's postal address (Settings → postal address;
+  toggle `email_footer_enabled`). Replies in a live conversation don't.
+- **Warm-up ramp**: WARMING senders are capped at 10 new/day (days 1–3), 20
+  (4–7), 30 (8–14), 40 (15–21), then their configured cap; follow-ups at half.
+  Day 1 = the sender's first real email (or when an admin sets it to Warming).
+  The dispatcher picks the sender with the most headroom.
 - **Safety nets**: sends carry a Resend idempotency key (`action-<id>`);
   actions stuck in PROCESSING > 15 min are re-claimed; the dispatcher stops at
   240 s and releases the rest; RFC 2606 test domains (example.com, *.test …)
@@ -89,7 +96,7 @@ the password lives in `~/.config/talent-radar/demo_password` (or set
 
 - Supabase dev project `talent-radar-dev` ref `hhdtretmidmdfmkopdyj` (us-east-1).
   Migrations: `npm run db:migrate` (needs `SUPABASE_ACCESS_TOKEN`, runs over
-  HTTPS via the Management API). Applied: 0001–0007. Types: `npm run db:types`
+  HTTPS via the Management API). Applied: 0001–0008. Types: `npm run db:types`
   (Management API, no CLI needed).
 - Test login: `claude-test@ansrpo.com` (password in the session that created it;
   create another admin from the sign-up tab with an @ansrpo.com address).

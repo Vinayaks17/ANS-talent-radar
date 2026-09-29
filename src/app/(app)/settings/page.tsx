@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "./settings-form";
 import { SendersPanel } from "./senders-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { daysSince } from "@/lib/format";
+import { effectiveSenderCaps } from "@/lib/policy/eligibility";
 import { monthSpend } from "@/lib/ai/client";
 import { MembersPanel } from "./members-panel";
 import { AccountPanel } from "./account-panel";
@@ -41,7 +41,7 @@ export default async function SettingsPage() {
           <AccountPanel />
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
-          <SendersPanel senders={(senders ?? []).map((x) => ({ ...x, warmup_day: daysSince(x.warmup_started_at) + 1 }))} isAdmin={s.role === "admin"} />
+          <SendersPanel senders={(senders ?? []).map((x) => { const c = effectiveSenderCaps(x, new Date()); return { ...x, warmup_day: c.day ?? 0, today_new: c.newCap, today_followup: c.followupCap }; })} isAdmin={s.role === "admin"} />
           <Card>
             <CardHeader><CardTitle className="text-sm">Suppression list</CardTitle></CardHeader>
             <CardContent className="space-y-2">

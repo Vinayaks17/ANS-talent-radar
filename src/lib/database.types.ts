@@ -841,7 +841,9 @@ export type Database = {
           auto_threshold: number
           default_nurture_days: number
           default_timezone: string
+          email_footer_enabled: boolean
           human_review_categories: string[]
+          mailing_address: string | null
           max_followups_per_sender_per_day: number
           max_new_per_sender_per_day: number
           max_outreach_per_day: number
@@ -865,7 +867,9 @@ export type Database = {
           auto_threshold?: number
           default_nurture_days?: number
           default_timezone?: string
+          email_footer_enabled?: boolean
           human_review_categories?: string[]
+          mailing_address?: string | null
           max_followups_per_sender_per_day?: number
           max_new_per_sender_per_day?: number
           max_outreach_per_day?: number
@@ -889,7 +893,9 @@ export type Database = {
           auto_threshold?: number
           default_nurture_days?: number
           default_timezone?: string
+          email_footer_enabled?: boolean
           human_review_categories?: string[]
+          mailing_address?: string | null
           max_followups_per_sender_per_day?: number
           max_new_per_sender_per_day?: number
           max_outreach_per_day?: number

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-type Sender = { id: string; email: string; display_name: string; status: string; daily_cap_new: number; daily_cap_followup: number; warmup_started_at: string; warmup_day: number };
+type Sender = { id: string; email: string; display_name: string; status: string; daily_cap_new: number; daily_cap_followup: number; warmup_started_at: string; warmup_day: number; today_new: number; today_followup: number };
 
 export function SendersPanel({ senders, isAdmin }: { senders: Sender[]; isAdmin: boolean }) {
   const [state, action, pending] = useActionState<{ error?: string }, FormData>(addSender, {});
@@ -26,7 +26,7 @@ export function SendersPanel({ senders, isAdmin }: { senders: Sender[]; isAdmin:
             <div key={s.id} className="flex items-center gap-3 text-sm border-b last:border-0 pb-2">
               <div className="flex-1 min-w-0">
                 <div className="font-semibold truncate">{s.email}</div>
-                <div className="text-xs text-muted-foreground">{s.display_name} · {s.daily_cap_new} new · {s.daily_cap_followup} follow-up / day</div>
+                <div className="text-xs text-muted-foreground">{s.display_name} · {s.daily_cap_new} new · {s.daily_cap_followup} follow-up / day{s.status === "WARMING" && ` · today's warm-up limit: ${s.today_new} new, ${s.today_followup} follow-up`}</div>
               </div>
               <Badge variant="outline" className={s.status === "WARMED" ? "bg-[#DCEFE3] text-[#14532D] border-0" : s.status === "WARMING" ? "bg-[#FCE8D2] text-[#7C3A00] border-0" : "bg-[#EEE] text-[#4B5563] border-0"}>
                 {s.status === "WARMING" ? `Warming · day ${s.warmup_day}` : s.status.toLowerCase()}
