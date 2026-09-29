@@ -75,6 +75,16 @@ with email sending stubbed:
   during integration runs:
   `select cron.alter_job((select jobid from cron.job where jobname='talent-radar-dispatch'), active := false);`
 
+## Demo tenant (for client walkthroughs)
+
+`npm run demo:seed` rebuilds "Northstar Staffing (demo)" (slug `demo`): 30
+fictional candidates, a campaign, and 18 replies run through the real AI
+pipeline (~$0.01), leaving 5 open review items (3 drafts, 1 legal/privacy,
+1 low confidence). Outreach is paused and every address is on example.com /
+.test, so nothing can ever be mailed. Login `demo@northstar-staffing.test`;
+the password lives in `~/.config/talent-radar/demo_password` (or set
+`DEMO_PASSWORD`). Re-run before each demo to reset it.
+
 ## Environment
 
 - Supabase dev project `talent-radar-dev` ref `hhdtretmidmdfmkopdyj` (us-east-1).
@@ -113,7 +123,13 @@ Vercel Hobby only allows daily crons, so the 5-minute schedule lives in Supabase
 
 1. ~~Deploy~~ done: `ans-talent-radar-eie4.vercel.app`, pg_cron verified
    (200s every 5 min). `OPENAI_API_KEY` must be set in Vercel for the AI.
-2. **Resend domain + webhook** (owner: Ankita, later): add `talent.ansrpo.com` in Resend, paste the
+2. **Resend domain + webhook**: domain `talent.ansrpo.com` created in Resend
+   (id 1c21cec2…, sending + receiving) and webhook 74bc6487… pointing at
+   `/api/webhooks/resend` (received, sent, delivered, delayed, bounced,
+   complained). Remaining: add the 5 DNS records at GoDaddy
+   (domaincontrol.com), click Verify in Resend, and set
+   `RESEND_WEBHOOK_SECRET` in Vercel (value in
+   `~/.config/talent-radar/.env`), then redeploy.: add `talent.ansrpo.com` in Resend, paste the
    SPF/DKIM/DMARC + MX records into DNS, create a webhook for
    `email.received`, `email.delivered`, `email.bounced`, `email.complained`
    pointing at `/api/webhooks/resend`. Start warm-up (senders at 20/day).
