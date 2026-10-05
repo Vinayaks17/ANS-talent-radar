@@ -1,5 +1,7 @@
 "use client";
 
+import { PRODUCT } from "@/lib/product";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutGrid, Users, Send, Inbox, Settings, LogOut, Target } from "lucide-react";
@@ -34,7 +36,7 @@ export function AppSidebar(props: {
           {props.logoText}
         </div>
         <div className="leading-tight">
-          <div className="text-sm font-bold">Talent Radar</div>
+          <div className="text-sm font-bold tracking-wide">{PRODUCT.name}</div>
           <div className="text-[11px] text-[#B7C3DA]">{props.orgName}</div>
         </div>
       </div>

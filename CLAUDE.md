@@ -1,8 +1,8 @@
 @AGENTS.md
 
-# Talent Radar — engineering rules
+# ANSPIRE (formerly Talent Radar) — engineering rules
 
-Talent Radar is a multi-tenant candidate-nurturing product: it emails a pool of
+ANSPIRE (ANS Smart Pipeline Intelligence & Recruitment Engine) is a multi-tenant candidate-nurturing product: it emails a pool of
 candidates on a schedule, reads their replies with an LLM, stores structured
 facts with provenance, replies when safe, and schedules reconnects. ANS RPO is
 tenant #1; the product will be sold to other staffing firms.

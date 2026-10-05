@@ -1,3 +1,4 @@
+import { PRODUCT } from "@/lib/product";
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Oswald } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
@@ -7,8 +8,8 @@ const sans = Plus_Jakarta_Sans({ variable: "--font-sans", subsets: ["latin"], we
 const display = Oswald({ variable: "--font-display", subsets: ["latin"], weight: ["500", "700"] });
 
 export const metadata: Metadata = {
-  title: { default: "Talent Radar", template: "%s · Talent Radar" },
-  description: "Candidate intelligence for staffing firms",
+  title: { default: PRODUCT.name, template: `%s · ${PRODUCT.name}` },
+  description: `${PRODUCT.name} — ${PRODUCT.tagline}`,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

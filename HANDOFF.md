@@ -1,4 +1,4 @@
-# Talent Radar — handoff (state as of 24 Sep 2026)
+# ANSPIRE (formerly Talent Radar) — handoff (state as of 24 Sep 2026)
 
 Read `CLAUDE.md` first (rules), then this file (state), then `docs/` if present.
 
