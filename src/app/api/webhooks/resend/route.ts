@@ -21,10 +21,17 @@ export async function POST(request: NextRequest) {
 
   let event: { type: string; data?: Record<string, unknown> };
   try {
-    event = new Webhook(secret).verify(raw, { "svix-id": svixId, "svix-timestamp": svixTs, "svix-signature": svixSig }) as unknown as typeof event;
+    // svix ≥2.5 verifies but no longer returns the parsed body, so parse it ourselves after the check.
+    new Webhook(secret.trim()).verify(raw, { "svix-id": svixId, "svix-timestamp": svixTs, "svix-signature": svixSig });
   } catch {
     return NextResponse.json({ error: "invalid signature" }, { status: 401 });
   }
+  try {
+    event = JSON.parse(raw) as typeof event;
+  } catch {
+    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+  }
+  if (!event?.type) return NextResponse.json({ error: "missing event type" }, { status: 400 });
 
   const db = adminClient();
   const { error } = await db.from("inbound_events").insert({ provider: "resend", provider_event_id: svixId, event_type: event.type, payload: event as never });

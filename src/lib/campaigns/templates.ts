@@ -44,7 +44,8 @@ export function merge(template: string, vars: MergeVars) {
   const v: Record<string, string> = {
     first_name: vars.first_name?.trim() || "there",
     last_name: vars.last_name ?? "",
-    sender_name: vars.sender_name,
+    // "Vini · ANS RPO" → "Vini": the From name may carry the firm, the signature shouldn't repeat it.
+    sender_name: vars.sender_name.split(/\s+[·|–—-]\s+/)[0].trim() || vars.sender_name,
     org_name: vars.org_name,
     sector: vars.sector ?? "your industry",
     current_company: vars.current_company ?? "",

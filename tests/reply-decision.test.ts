@@ -111,3 +111,11 @@ describe("sender warm-up and footer", async () => {
     expect(emailFooter({ orgName: "ANS RPO", mailingAddress: null, unsubscribeUrl: "u" }).endsWith("ANS RPO")).toBe(true);
   });
 });
+
+describe("template merge", async () => {
+  const { merge } = await import("@/lib/campaigns/templates");
+  it("uses the sender's first name in the body", () => {
+    expect(merge("I'm {{sender_name}} with {{org_name}}", { sender_name: "Vini · ANS RPO", org_name: "ANS RPO Solutions" })).toBe("I'm Vini with ANS RPO Solutions");
+    expect(merge("{{sender_name}}", { sender_name: "Vini", org_name: "x" })).toBe("Vini");
+  });
+});
