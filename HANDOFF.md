@@ -113,6 +113,9 @@ with email sending stubbed:
   (Settings → "Health alerts go to"), only when a check fails. Checks:
   overdue/stuck actions, failed actions, webhook silence/errors, bounce and
   complaint rates, AI fallbacks/budget. Idempotent per org per day.
+  Recipients for ANS (asked 6 Oct): vini@hireecom.com, sushantg@ansaffiliates.com —
+  set them in Settings once 0011 is applied. Until then: `npm run health -- --org ans
+  --email vini@hireecom.com,sushantg@ansaffiliates.com` (emails only on a failing check).
 - Not built yet: client login (V2 part 2).
 
 ## Demo tenant (for client walkthroughs)

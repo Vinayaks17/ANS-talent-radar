@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "db:types": "node --env-file=.env.local scripts/gen-types.mjs",
     "demo:seed": "tsx --env-file=.env.local --conditions=react-server scripts/seed-demo.ts",
-    "db:readiness": "tsx --env-file=.env.local --conditions=react-server scripts/refresh-readiness.ts"
+    "db:readiness": "tsx --env-file=.env.local --conditions=react-server scripts/refresh-readiness.ts",
+    "health": "tsx --env-file=.env.local --conditions=react-server scripts/health-check.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

@@ -21,7 +21,8 @@ export async function computeHealth(db: Db, orgId: string, now = new Date()): Pr
     db.from("scheduled_actions").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "PENDING").lt("scheduled_for", t(0.5 * H)),
     db.from("scheduled_actions").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "PROCESSING").lt("locked_at", t(0.5 * H)),
     db.from("scheduled_actions").select("id, last_error", { count: "exact" }).eq("org_id", orgId).eq("status", "FAILED").gte("created_at", t(7 * 24 * H)).limit(3),
-    db.from("messages").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("direction", "OUTBOUND").gte("sent_at", t(24 * H)),
+    // Only mail Resend actually sent (has a real provider id): demo/seeded rows never produce webhooks.
+    db.from("messages").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("direction", "OUTBOUND").gte("sent_at", t(24 * H)).not("provider_message_id", "like", "demo_%").not("provider_message_id", "is", null),
     db.from("inbound_events").select("id", { count: "exact", head: true }).eq("org_id", orgId).gte("received_at", t(24 * H)),
     db.from("inbound_events").select("id, error", { count: "exact" }).eq("org_id", orgId).not("error", "is", null).gte("received_at", t(24 * H)).limit(3),
     db.from("messages").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("direction", "OUTBOUND").gte("sent_at", t(7 * 24 * H)),
