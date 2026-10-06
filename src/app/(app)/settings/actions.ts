@@ -49,6 +49,7 @@ const settingsSchema = z.object({
   mailing_address: z.string().trim().max(300).transform((v) => v || null),
   email_footer_enabled: z.boolean(),
   matching_enabled: z.boolean(),
+  alert_emails: z.array(z.string().email("Health alert emails must be valid addresses")).max(10),
 });
 
 export type SettingsState = { error?: string; saved?: boolean };
@@ -76,6 +77,7 @@ export async function saveSettings(_prev: SettingsState, formData: FormData): Pr
     mailing_address: String(formData.get("mailing_address") ?? ""),
     email_footer_enabled: formData.get("email_footer_enabled") === "on",
     matching_enabled: formData.get("matching_enabled") === "on",
+    alert_emails: String(formData.get("alert_emails") ?? "").split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean),
     human_review_categories: formData.getAll("human_review_categories").map(String),
     models: Object.fromEntries(
       ["outreach", "classify", "reply", "memory", "resume", "match"].map((k) => [k, String(formData.get(`model_${k}`) ?? "gpt-5.6-luna")]),
@@ -86,7 +88,12 @@ export async function saveSettings(_prev: SettingsState, formData: FormData): Pr
   if (parsed.data.review_threshold > parsed.data.auto_threshold) return { error: "Review threshold must be below the automatic threshold" };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("org_settings").update(parsed.data).eq("org_id", s.orgId);
+  let { error } = await supabase.from("org_settings").update(parsed.data).eq("org_id", s.orgId);
+  if (error && /alert_emails/.test(error.message)) {
+    // Database not yet migrated (0011): save everything else rather than failing the whole form.
+    const { alert_emails: _skip, ...rest } = parsed.data; void _skip;
+    ({ error } = await supabase.from("org_settings").update(rest).eq("org_id", s.orgId));
+  }
   if (error) return { error: error.message };
   await audit(adminClient(), { orgId: s.orgId, eventType: "SETTINGS_UPDATED", actor: "USER", actorUserId: s.userId, metadata: parsed.data });
   revalidatePath("/settings");

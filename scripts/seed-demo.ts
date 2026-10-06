@@ -187,6 +187,21 @@ async function main() {
     }
   }
 
+  // 5b. A resume on one profile so the demo shows resume parsing (fictional candidate, fixture PDF).
+  {
+    const { parseResumeIntoCandidate } = await import("../src/lib/resume/parse");
+    const { extractResumeText } = await import("../src/lib/resume/extract");
+    const { data: priya } = await db.from("candidates").select("*").eq("org_id", org.id).eq("first_name", "Priya").maybeSingle();
+    if (priya) {
+      const bytes = new Uint8Array(readFileSync(path.join(import.meta.dirname, "fixtures", "sample-resume-priya-raman.pdf")));
+      const text = await extractResumeText(bytes.slice(), "pdf");
+      const key = `${org.id}/${priya.id}/demo-priya_raman.pdf`;
+      await db.storage.from("resumes").upload(key, bytes, { contentType: "application/pdf", upsert: true });
+      const r = await parseResumeIntoCandidate(db, { candidate: priya, text, file: { path: key, filename: "priya_raman.pdf", size: bytes.length }, userId });
+      results.push(`Resume parsed for Priya Raman: ${r.ok ? `${r.data.skills.length} skills` : r.reason}`);
+    }
+  }
+
   // 6. V2 preview: readiness for everyone, two open requirements, matching run on the first.
   const { refreshReadiness } = await import("../src/lib/matching/readiness");
   const { runMatching } = await import("../src/lib/matching/match");

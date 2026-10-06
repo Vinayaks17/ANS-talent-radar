@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { loadDashboard } from "@/lib/queries/dashboard";
+import { computeHealth } from "@/lib/health";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { marketLabel } from "@/components/status-badge";
@@ -20,7 +21,7 @@ const TILES: [string, string, string?][] = [
 export default async function DashboardPage() {
   const s = await getSession();
   const db = await createClient();
-  const d = await loadDashboard(db, s.orgId);
+  const [d, health] = await Promise.all([loadDashboard(db, s.orgId), computeHealth(db, s.orgId)]);
   const maxMonth = Math.max(1, ...d.futureAvailability.map((m) => m.count));
   const maxReply = Math.max(1, ...Object.values(d.repliesByMarket));
   const replyOrder = ["AVAILABLE_NOW", "OPEN_TO_RIGHT_OPPORTUNITY", "OPEN_LATER", "PASSIVE", "NOT_LOOKING", "NOT_INTERESTED", "UNKNOWN"];
@@ -100,7 +101,7 @@ export default async function DashboardPage() {
             <CardContent className="pt-5 space-y-3">
               <div className="flex items-center"><h2 className="text-[15px] font-bold">Needs a human</h2><div className="flex-1" /><Link href="/review" className="text-xs font-semibold text-primary">Open review queue →</Link></div>
               <div className="flex gap-3">
-                <Stat n={d.openReview} label="replies waiting for approval" />
+                <Stat n={d.draftReview} label="AI drafts waiting for approval" />
                 <Stat n={d.flaggedReview} label="flagged: complaint, legal, negotiation" cls="text-[#7F1D1D]" />
                 <Stat n={d.lowConfidenceReview} label="low-confidence classifications" />
               </div>
@@ -115,10 +116,32 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardContent className="pt-5 space-y-3">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-[15px] font-bold">System health</h2>
+              <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${HEALTH_CLS[health.status]}`}>{health.status === "ok" ? "All good" : health.status === "warn" ? "Needs a look" : "Action needed"}</span>
+              <div className="flex-1" />
+              <span className="text-[11px] text-muted-foreground">Checked just now · admins get an email when something breaks</span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+              {health.checks.map((c) => (
+                <div key={c.key} className="border rounded-lg px-3.5 py-3 space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold"><span className={`w-2 h-2 rounded-full ${DOT[c.status]}`} />{c.label}</div>
+                  <div className="text-[11px] text-muted-foreground leading-snug">{c.detail}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </>
   );
 }
+
+const HEALTH_CLS = { ok: "bg-[#DCEFE3] text-[#14532D]", warn: "bg-[#FCE8D2] text-[#7C3A00]", error: "bg-[#FBE2E2] text-[#7F1D1D]" } as const;
+const DOT = { ok: "bg-[#16A34A]", warn: "bg-[#F59E0B]", error: "bg-[#DC2626]" } as const;
 
 function Stat({ n, label, cls }: { n: number; label: string; cls?: string }) {
   return (

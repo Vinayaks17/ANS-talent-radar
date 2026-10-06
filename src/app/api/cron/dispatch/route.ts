@@ -4,6 +4,7 @@ import { adminClient } from "@/lib/supabase/admin";
 import { runDispatcher } from "@/lib/workers/dispatcher";
 import { processInboundEvents } from "@/lib/workers/inbound";
 import { dailyReadinessSweep } from "@/lib/matching/readiness";
+import { sendHealthDigests } from "@/lib/health-digest";
 
 export const maxDuration = 300;
 
@@ -22,6 +23,8 @@ export async function GET(request: NextRequest) {
   const dispatch = await runDispatcher(db, { limit: 100 });
   // Once a day (the 03:00 UTC run, from pg_cron or the Vercel fallback): readiness decays with time.
   const t = new Date();
-  const readiness = t.getUTCHours() === 3 && t.getUTCMinutes() < 5 ? await dailyReadinessSweep(db).catch((e) => `error: ${e instanceof Error ? e.message : e}`) : undefined;
-  return NextResponse.json({ ok: true, ms: Date.now() - started, inbound, dispatch, readiness });
+  const daily = t.getUTCHours() === 3 && t.getUTCMinutes() < 5;
+  const readiness = daily ? await dailyReadinessSweep(db).catch((e) => `error: ${e instanceof Error ? e.message : e}`) : undefined;
+  const health = daily ? await sendHealthDigests(db, t).catch((e) => [`error: ${e instanceof Error ? e.message : e}`]) : undefined;
+  return NextResponse.json({ ok: true, ms: Date.now() - started, inbound, dispatch, readiness, health });
 }

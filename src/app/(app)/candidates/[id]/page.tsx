@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, formatDateTime, formatAvailability, fullName, initials, money } from "@/lib/format";
 import { CandidateActions } from "./candidate-actions";
 import { readinessScore } from "@/lib/policy/readiness";
+import { ResumeCard } from "./resume-upload";
 
 export default async function CandidatePage(props: PageProps<"/candidates/[id]">) {
   const { id } = await props.params;
@@ -29,6 +30,8 @@ export default async function CandidatePage(props: PageProps<"/candidates/[id]">
   const { data: matched } = ready
     ? await db.from("requirement_matches").select("match_score, status, requirements(id, title, status)").eq("candidate_id", id).neq("status", "REJECTED").order("match_score", { ascending: false }).limit(5)
     : { data: null };
+  const resumeFact = (facts ?? []).find((f) => f.fact_type === "RESUME_FILE");
+  const resumeVal = resumeFact ? (resumeFact.value_json as { value?: string; path?: string }) : null;
   const name = fullName(c);
   const next = actions?.[0];
   const enrollment = enrollments?.[0];
@@ -82,6 +85,7 @@ export default async function CandidatePage(props: PageProps<"/candidates/[id]">
 
         <div className="grid grid-cols-1 xl:grid-cols-[520px_1fr] gap-5 items-start">
           <div className="space-y-5">
+            <ResumeCard candidateId={c.id} canEdit={canWrite(s.role)} latest={resumeVal?.path ? { filename: resumeVal.value ?? "resume", path: resumeVal.path, when: formatDate(resumeFact!.reported_at) } : null} />
             <Card>
               <CardHeader><CardTitle className="text-sm">Candidate memory <span className="font-normal text-muted-foreground">· AI summary</span></CardTitle></CardHeader>
               <CardContent><p className="text-[13px] leading-relaxed">{c.memory_summary ?? "Nothing recorded yet — filled after the first reply."}</p>{c.notes && <p className="text-xs text-muted-foreground mt-2">Notes: {c.notes}</p>}</CardContent>

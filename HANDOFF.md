@@ -1,4 +1,4 @@
-# ANSPIRE (formerly Talent Radar) — handoff (state as of 24 Sep 2026)
+# ANSPIRE (formerly Talent Radar) — handoff (state as of 6 Oct 2026)
 
 Read `CLAUDE.md` first (rules), then this file (state), then `docs/` if present.
 
@@ -101,8 +101,19 @@ with email sending stubbed:
   Shortlist / reject / undo per candidate; decisions survive re-runs. Cost
   measured ≈ $0.03 per requirement run on Terra.
 - Turn on per org in Settings → "Requirement matching (V2 preview)".
-- Not built yet: client login (V2 part 2), resume parsing to enrich profiles
-  (matching quality depends on skills/memory being filled in).
+- **Resume parsing** (profile → Resume card): PDF (unpdf) or DOCX (mammoth),
+  ≤ 4 MB, stored in the private `resumes` bucket (`{org}/{candidate}/…`),
+  text → `resume_parser` prompt (`models.resume`, Luna, ≈ $0.001) → fills
+  blank title/company/location/industry, merges skills, adds facts with
+  source RESUME (RESUME_FILE, CURRENT_TITLE, EXPERIENCE_YEARS, SKILLS,
+  WORK_HISTORY, EDUCATION, CERTIFICATIONS). Email-reported facts always win.
+  pdf.js detaches the buffer it is given: pass `bytes.slice()`.
+- **System health** (`src/lib/health.ts`): dashboard card + daily email in the
+  03:00 UTC run (`src/lib/health-digest.ts`) to `org_settings.alert_emails`
+  (Settings → "Health alerts go to"), only when a check fails. Checks:
+  overdue/stuck actions, failed actions, webhook silence/errors, bounce and
+  complaint rates, AI fallbacks/budget. Idempotent per org per day.
+- Not built yet: client login (V2 part 2).
 
 ## Demo tenant (for client walkthroughs)
 
@@ -118,13 +129,21 @@ the password lives in `~/.config/talent-radar/demo_password` (or set
 
 - Supabase dev project `talent-radar-dev` ref `hhdtretmidmdfmkopdyj` (us-east-1).
   Migrations: `npm run db:migrate` (needs `SUPABASE_ACCESS_TOKEN`, runs over
-  HTTPS via the Management API). Applied: 0001–0010. Types: `npm run db:types`
+  HTTPS via the Management API). Applied: 0001–0010. **Pending: 0011
+  (`alert_emails`; the code tolerates it missing) — the old token returns 401,
+  needs a new one.** 0012's bucket + prompt already exist (made via REST); the
+  file is idempotent. Types: `npm run db:types`
   (Management API, no CLI needed).
 - Test login: `claude-test@ansrpo.com` (password in the session that created it;
   create another admin from the sign-up tab with an @ansrpo.com address).
-- Dev org has `outreach_paused = true` on purpose: the sender
-  `sushant@talent.ansrpo.com` exists but the domain is not verified in Resend
-  yet, so real sends would fail. Resume from Settings once DNS is done.
+- ANS org sends as "Vini" <vini@talent.ansrpo.com> (domain verified 30 Sep),
+  replies come back via `vini+t_<token>@talent.ansrpo.com`. Footer address:
+  Suite 105, 501 Silverside, Wilmington, DE 19809, US. Warm-up 10→40/day.
+- **Internal test (6–10 Oct)**: 11 colleague addresses, one reply scenario each;
+  candidates tagged internal-test. Only those may be auto-approved by the
+  scheduled check-ins (audited as `claude:test-approval`). Never mail
+  ankitadewani@gmail.com (suppressed). Delivery status only moves forward
+  (`deliveryRank` in `workers/inbound.ts`); events are claimed before processing.
 - `EMAIL_DRY_RUN=1` makes `sendEmail` log instead of calling Resend.
 
 ## Schedule (where the cron lives)
@@ -152,7 +171,7 @@ Vercel Hobby only allows daily crons, so the 5-minute schedule lives in Supabase
 
 1. ~~Deploy~~ done: `ans-talent-radar-eie4.vercel.app`, pg_cron verified
    (200s every 5 min). `OPENAI_API_KEY` must be set in Vercel for the AI.
-2. **Resend domain + webhook**: domain `talent.ansrpo.com` created in Resend
+2. ~~Resend domain + webhook~~ done (verified 30 Sep, webhook secret set). Old notes: domain `talent.ansrpo.com` created in Resend
    (id 1c21cec2…, sending + receiving) and webhook 74bc6487… pointing at
    `/api/webhooks/resend` (received, sent, delivered, delayed, bounced,
    complained). Remaining: add the 5 DNS records at GoDaddy

@@ -845,6 +845,7 @@ export type Database = {
       org_settings: {
         Row: {
           ai_enabled: boolean
+          alert_emails: string[]
           ai_monthly_budget_usd: number
           approval_required: boolean
           auto_threshold: number
@@ -872,6 +873,7 @@ export type Database = {
         }
         Insert: {
           ai_enabled?: boolean
+          alert_emails?: string[]
           ai_monthly_budget_usd?: number
           approval_required?: boolean
           auto_threshold?: number
@@ -899,6 +901,7 @@ export type Database = {
         }
         Update: {
           ai_enabled?: boolean
+          alert_emails?: string[]
           ai_monthly_budget_usd?: number
           approval_required?: boolean
           auto_threshold?: number

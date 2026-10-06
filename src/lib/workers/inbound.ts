@@ -20,6 +20,10 @@ export async function processInboundEvents(db: Db, limit = 50) {
   const { data: events } = await db.from("inbound_events").select("*").is("processed_at", null).order("received_at").limit(limit);
   const out: string[] = [];
   for (const ev of events ?? []) {
+    // Claim first: several webhook deliveries can trigger processing at the same moment,
+    // and only one of them may handle a given event (no double AI runs, no status races).
+    const { data: claimed } = await db.from("inbound_events").update({ processed_at: new Date().toISOString() }).eq("id", ev.id).is("processed_at", null).select("id");
+    if (!claimed?.length) continue;
     try {
       const r = await processEvent(db, ev);
       await db.from("inbound_events").update({ processed_at: new Date().toISOString(), error: null, org_id: r.orgId ?? null }).eq("id", ev.id);
@@ -42,12 +46,13 @@ async function processEvent(db: Db, ev: Event): Promise<{ orgId: string | null; 
   // Outbound delivery events: find our message by provider id.
   const providerId = String(data.email_id ?? "");
   if (!providerId) return { orgId: null, note: "no email_id" };
-  const { data: msg } = await db.from("messages").select("id, org_id, candidate_id, to_address").eq("provider", "resend").eq("provider_message_id", providerId).maybeSingle();
+  const { data: msg } = await db.from("messages").select("id, org_id, candidate_id, to_address, delivery_status").eq("provider", "resend").eq("provider_message_id", providerId).maybeSingle();
   if (!msg) return { orgId: null, note: "message not found" };
 
   const status: Record<string, Tables<"messages">["delivery_status"]> = { "email.sent": "SENT", "email.delivered": "DELIVERED", "email.bounced": "BOUNCED", "email.complained": "COMPLAINED", "email.delivery_delayed": "SENT" };
   const st = status[ev.event_type];
-  if (st) await db.from("messages").update({ delivery_status: st }).eq("id", msg.id);
+  // Events can arrive out of order ("delivered" before "sent"); a status only moves forward.
+  if (st && deliveryRank(st) > deliveryRank(msg.delivery_status)) await db.from("messages").update({ delivery_status: st }).eq("id", msg.id);
 
   if (ev.event_type === "email.bounced") {
     const bounce = (data.bounce ?? {}) as { type?: string; subType?: string; message?: string };
@@ -276,4 +281,9 @@ async function handleReplyInner(db: Db, a: {
   }
   await audit(db, { orgId, candidateId: candidate.id, eventType: "AUTO_REPLY_QUEUED", actor: "SYSTEM", model: draftMeta!.model, promptVersion: draftMeta!.promptVersion, decision: "SEND_REPLY", reason: decision.reason, inputRef: messageId });
   return { orgId, note: "reply → auto-reply queued" };
+}
+
+const RANK: Record<string, number> = { QUEUED: 0, SENT: 1, FAILED: 1, DELIVERED: 2, BOUNCED: 3, COMPLAINED: 4, RECEIVED: 0 };
+export function deliveryRank(s: string | null | undefined) {
+  return RANK[s ?? ""] ?? 0;
 }

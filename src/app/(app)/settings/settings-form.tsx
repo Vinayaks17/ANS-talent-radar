@@ -41,7 +41,7 @@ type Settings = {
   auto_threshold: number; review_threshold: number; approval_required: boolean;
   human_review_categories: string[]; models: Record<string, string>;
   ai_enabled: boolean; ai_monthly_budget_usd: number;
-  mailing_address: string | null; email_footer_enabled: boolean; matching_enabled: boolean;
+  mailing_address: string | null; email_footer_enabled: boolean; matching_enabled: boolean; alert_emails: string[];
 };
 
 export function SettingsForm({ settings, isAdmin, aiSpentUsd }: { settings: Settings; isAdmin: boolean; aiSpentUsd: number }) {
@@ -95,6 +95,11 @@ export function SettingsForm({ settings, isAdmin, aiSpentUsd }: { settings: Sett
               <Field label="Monthly AI budget (USD)" name="ai_monthly_budget_usd" value={settings.ai_monthly_budget_usd} step="1" ro={ro} />
             </div>
             <p className="text-xs text-muted-foreground -mt-2">Spent this month: <strong className="text-foreground">${aiSpentUsd.toFixed(2)}</strong> of ${Number(settings.ai_monthly_budget_usd).toFixed(0)}. At the limit the AI stops and work falls back to people and templates.</p>
+            <div className="space-y-1.5">
+              <Label htmlFor="alert_emails">Health alerts go to</Label>
+              <Input id="alert_emails" name="alert_emails" defaultValue={(settings.alert_emails ?? []).join(", ")} placeholder="ops@yourcompany.com, you@yourcompany.com" readOnly={ro} />
+              <p className="text-[11px] text-muted-foreground">One email a day, only if something is broken (failed sends, bounces, replies not arriving, AI errors).</p>
+            </div>
             <label className="flex items-start gap-3 text-sm">
               <input type="checkbox" name="matching_enabled" defaultChecked={settings.matching_enabled} disabled={ro} className="mt-0.5" />
               <span><span className="block font-bold">Requirement matching (V2 preview)</span><span className="block text-xs text-muted-foreground">Shows readiness scores and the Requirements page. Matching uses the &ldquo;Requirement matching&rdquo; model below.</span></span>

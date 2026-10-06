@@ -9,6 +9,7 @@ export type DashboardData = {
   repliesByMarket: Record<string, number>;
   futureAvailability: { month: string; count: number }[];
   openReview: number;
+  draftReview: number;
   flaggedReview: number;
   lowConfidenceReview: number;
   sentToday: number;
@@ -70,6 +71,7 @@ export async function loadDashboard(db: Db, orgId: string): Promise<DashboardDat
     repliesByMarket,
     futureAvailability: months.map(({ month, count }) => ({ month, count })),
     openReview: reviewRows.length,
+    draftReview: reviewRows.filter((r) => r.category === "DRAFT_APPROVAL").length,
     flaggedReview: flagged,
     lowConfidenceReview: lowConf,
     sentToday: sent.count ?? 0,
